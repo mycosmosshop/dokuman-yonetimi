@@ -44,6 +44,7 @@
   .filebox{grid-column:1/-1;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:6px}
   .filebox code{font-size:.85em;word-break:break-all;color:#0f172a}
   .copy{margin-left:8px;font-size:.8em;background:var(--b);color:#fff;border:none;border-radius:6px;padding:3px 9px;cursor:pointer}
+  .copy.open{background:#15803d;font-weight:700}.copy.open:hover{background:#166534}
   /* gözden geçirme — gizli açılır (dropdown) */
   .rev-det{grid-column:1/-1;margin-top:10px}
   .rev-det summary{cursor:pointer;font-weight:700;color:var(--b);border-bottom:2px solid #e0ecff;padding-bottom:3px;list-style:none;display:flex;align-items:center;gap:7px;user-select:none}
@@ -208,6 +209,19 @@ function toggleAdmin(){
 const $=s=>document.querySelector(s);
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=d=>{ if(!d)return''; const s=String(d).slice(0,10); const p=s.split('-'); return p.length===3?`${p[2]}.${p[1]}.${p[0]}`:s; };
+
+// ---- dosyayı tek tıkla aç ----
+// Office (xls/doc/ppt) → Office URI ile direkt açılır (kurulum gerekmez).
+// PDF/diğer → leandoc: protokolü (her PC'de "Dokuman Ac Kurulum.bat" bir kez çalıştırılır).
+const _OFFICE={xls:'ms-excel',xlsx:'ms-excel',xlsm:'ms-excel',xlsb:'ms-excel',doc:'ms-word',docx:'ms-word',dot:'ms-word',rtf:'ms-word',ppt:'ms-powerpoint',pptx:'ms-powerpoint'};
+function _encPath(unc){ return String(unc||'').replace(/^\\\\/,'').replace(/\\/g,'/').split('/').map(encodeURIComponent).join('/'); }
+function openDoc(link,ext){
+  link=String(link||''); if(!link){ toast('Dosya yolu yok.','err'); return; }
+  ext=(ext||'').replace('.','').toLowerCase();
+  const p=_encPath(link), app=_OFFICE[ext];
+  if(app){ window.location.href=app+':ofv|u|file://'+p; }
+  else { window.location.href='leandoc://'+p; toast('Açılmazsa bu PC\'de bir kez "Dokuman Ac Kurulum.bat" çalıştır.'); }
+}
 
 async function loadDocs(){
   $('#tbody').innerHTML='<tr><td colspan="9" class="empty">Yükleniyor…</td></tr>';
@@ -391,8 +405,11 @@ function showDetail(i){
   h+=fld('Elektronik Dağıtım',d.elektronik_dagitim)+fld('Matbu Dağıtım',d.matbu_dagitim)+fld('Arşiv Yeri',d.arsiv_yeri)+fld('Arşiv Sorumlusu',d.arsiv_sorumlusu)+fld('Arşiv Süresi (Yıl)',d.arsiv_suresi)+fld('Gözden Geçirme (Ay)',d.gozden_gecirme_suresi)+fld('İmha Yetkilisi',d.imha_yetkilisi)+fld('Proses Sorumlusu',d.proses_sorumlusu);
   h+=`<div id="revSection" class="rev-loading" data-docno="${esc(d.doc_no||'')}">Gözden geçirme kayıtları yükleniyor…</div>`;
   if(d.dosya_adi){
-    h+=`<div class="filebox"><b>📎 Dosya:</b> ${esc(d.dosya_adi)} <span class="ext">${esc((d.dosya_uzanti||'').replace('.',''))}</span><br>
-      <code id="flink">${esc(d.dosya_link)}</code><button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('flink').textContent);this.textContent='✓'">kopyala</button></div>`;
+    const _fe=(d.dosya_uzanti||'').replace('.','');
+    h+=`<div class="filebox"><b>📎 Dosya:</b> ${esc(d.dosya_adi)} <span class="ext">${esc(_fe)}</span><br>
+      <code id="flink">${esc(d.dosya_link)}</code>
+      <button class="copy open" onclick="openDoc(this.dataset.link,this.dataset.ext)" data-link="${esc(d.dosya_link)}" data-ext="${esc(_fe)}">📂 Aç</button>
+      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('flink').textContent);this.textContent='✓'">⧉ kopyala</button></div>`;
   }
   h+='</div>';
   $('#mBody').innerHTML=h;
