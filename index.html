@@ -58,6 +58,28 @@
   .rev-tbl td{padding:5px 11px;border-bottom:1px solid #eef1f6;white-space:nowrap}
   .rev-tbl tr:last-child td{border-bottom:none}
   .rev-tbl td.late{color:#b45309}
+  .rev-tbl td.rev-act{text-align:center;padding:2px 6px}
+  .rev-x{background:none;border:none;color:#dc2626;cursor:pointer;font-size:1em;line-height:1;padding:2px 6px;border-radius:5px}
+  .rev-x:hover{background:#fee2e2}
+  .rev-ctrls{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+  .rev-btn{font-size:.8em;padding:5px 10px;border:1px solid var(--line);background:#f8fafc;color:var(--b);border-radius:7px;cursor:pointer;font-weight:600}
+  .rev-btn:hover{background:#eef4ff}
+  .rev-btn.danger{color:#b91c1c;border-color:#fecaca}.rev-btn.danger:hover{background:#fef2f2}
+  .rev-add{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:10px;background:#f8fafc;border:1px dashed var(--line);border-radius:8px}
+  .rev-add input{padding:6px 8px;border:1px solid var(--line);border-radius:6px;font-size:.85em}
+  .rev-add input[type=date]{min-width:140px}
+  .rev-loading{grid-column:1/-1;color:var(--muted);font-size:.85em;margin-top:10px;padding:8px}
+  /* toast */
+  #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:11px 18px;border-radius:10px;font-size:.9em;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:200;display:none;max-width:90%}
+  #toast.ok{background:#15803d}#toast.err{background:#b91c1c}
+  /* toplu menü */
+  .menu-wrap{position:relative;display:inline-block}
+  .menu-pop{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,.18);padding:6px;min-width:260px;z-index:60;display:none}
+  .menu-pop.on{display:block}
+  .menu-pop button{display:block;width:100%;text-align:left;background:none;border:none;padding:9px 11px;border-radius:7px;cursor:pointer;font-size:.88em;color:#1f2937}
+  .menu-pop button:hover{background:#eef4ff}
+  .menu-pop button.danger{color:#b91c1c}.menu-pop button.danger:hover{background:#fef2f2}
+  .menu-pop .mhdr{font-size:.74em;color:var(--muted);padding:6px 11px 2px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
   /* auth */
   #auth{position:fixed;inset:0;background:linear-gradient(135deg,#0f2747,#1e3c72);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
   .auth-card{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.4);padding:30px 28px;width:100%;max-width:380px;text-align:center}
@@ -94,6 +116,14 @@
   <span style="opacity:.8;font-size:.85em">Güncel Doküman Listesi · LeanSys</span>
   <span class="sp"></span>
   <button class="btn" onclick="loadDocs()">🔄 Yenile</button>
+  <div class="menu-wrap">
+    <button class="btn" id="bulkMenuBtn">⚙ Gözden Geçirme ▾</button>
+    <div class="menu-pop" id="bulkMenu">
+      <div class="mhdr">Tüm dokümanlar</div>
+      <button id="bulkGenBtn">↻ Tümü için otomatik oluştur ve kaydet</button>
+      <button id="bulkDelBtn" class="danger">🗑 Tüm gözden geçirmeleri sil</button>
+    </div>
+  </div>
   <span id="whoEmail" style="font-size:.8em;opacity:.85;margin-left:4px"></span>
   <button class="btn" id="logoutBtn" style="background:rgba(255,255,255,.18);color:#fff">Çıkış</button>
 </header>
@@ -116,6 +146,8 @@
   </div>
 </div>
 </div>
+
+<div id="toast"></div>
 
 <div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
   <div class="modal">
@@ -209,13 +241,94 @@ function genReviews(d){
   }
   return out;
 }
-function reviewsHtml(d){
-  const revs=genReviews(d); if(!revs.length) return '';
+function _iso(d){ if(!d) return null; const p=n=>String(n).padStart(2,'0'); return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}`; }
+function toast(msg,type){ const t=document.getElementById('toast'); t.className=type||''; t.textContent=msg; t.style.display='block'; clearTimeout(t._t); t._t=setTimeout(()=>{t.style.display='none';},type==='err'?6000:3500); }
+
+// ---- doc_reviews (Supabase) ----
+let _revTableMissing=false;
+async function dbReviews(docNo){
+  const {data,error}=await sb.from('doc_reviews').select('*').eq('doc_no',docNo).order('planned',{ascending:true}).order('id',{ascending:true});
+  if(error){ if(/doc_reviews/.test(error.message)&&/exist|relation|schema/i.test(error.message)) _revTableMissing=true; return []; }
+  return data||[];
+}
+async function dbReviewDelete(id){ const {error}=await sb.from('doc_reviews').delete().eq('id',id); if(error) throw error; }
+async function dbReviewDeleteDoc(docNo){ const {error}=await sb.from('doc_reviews').delete().eq('doc_no',docNo); if(error) throw error; }
+async function dbReviewInsert(rows){ if(!rows.length) return; const {error}=await sb.from('doc_reviews').insert(rows); if(error) throw error; }
+function genRowsFor(d){ return genReviews(d).map(r=>({doc_no:d.doc_no,planned:_iso(r.planned),realized:_iso(r.real),reviewer:r.reviewer,aciklama:r.aciklama})); }
+
+// ---- modal: gözden geçirme bölümü (düzenlenebilir) ----
+function reviewSectionHtml(d,saved){
   const per=parseInt(d.gozden_gecirme_suresi,10)||12;
+  const isSaved=saved.length>0;
+  const list = isSaved
+    ? saved.map(r=>({planned:_parseD(r.planned),real:_parseD(r.realized),reviewer:r.reviewer,aciklama:r.aciklama,id:r.id}))
+    : genReviews(d).map(r=>({planned:r.planned,real:r.real,reviewer:r.reviewer,aciklama:r.aciklama,id:null}));
   let rows='';
-  revs.forEach(r=>{ rows+=`<tr><td>${_fmtD(r.planned)}</td><td class="${r.gap>5?'late':''}">${_fmtD(r.real)}</td><td>${esc(r.reviewer)}</td><td>${esc(r.aciklama||'-')}</td></tr>`; });
-  return `<details class="rev-det"><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">(${revs.length} kayıt · periyot ${per} ay)</span></summary>`
-    +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan Tarih</th><th>Gerçekleşen Tarih</th><th>Kontrol Eden</th><th>Açıklama</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+  list.forEach(r=>{ const gap=(r.planned&&r.real)?Math.round((r.real-r.planned)/86400000):0;
+    rows+=`<tr><td>${r.planned?_fmtD(r.planned):'-'}</td><td class="${gap>5?'late':''}">${r.real?_fmtD(r.real):'-'}</td><td>${esc(r.reviewer)}</td><td>${esc(r.aciklama||'-')}</td><td class="rev-act">${r.id?`<button class="rev-x" data-del="${r.id}" title="Sil">✕</button>`:''}</td></tr>`; });
+  if(!rows) rows='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:14px">Kayıt yok</td></tr>';
+  const badge=isSaved?`(${list.length} kayıt · periyot ${per} ay)`:`(${list.length} kayıt · periyot ${per} ay · önizleme)`;
+  const ctrls=`<div class="rev-ctrls">`
+    +`<button class="rev-btn" data-act="gen">↻ Otomatik oluştur${isSaved?' (yeniden)':' ve kaydet'}</button>`
+    +`<button class="rev-btn" data-act="add">＋ Satır ekle</button>`
+    +(isSaved?`<button class="rev-btn danger" data-act="delall">🗑 Tümünü sil</button>`:'')
+    +`</div>`
+    +`<div class="rev-add hidden" id="revAddForm"><input type="date" id="raPlanned" title="Planlanan"><input type="date" id="raReal" title="Gerçekleşen"><input id="raWho" placeholder="Kontrol Eden" value="${esc(d.hazirlayan||'')}"><input id="raAck" placeholder="Açıklama" value="${esc(REV_ACIKLAMA)}"><button class="rev-btn" data-act="addsave">Kaydet</button><button class="rev-btn" data-act="addcancel">İptal</button></div>`;
+  return `<details class="rev-det"><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">${badge}</span></summary>`
+    +ctrls
+    +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan</th><th>Gerçekleşen</th><th>Kontrol Eden</th><th>Açıklama</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+}
+async function loadReviewsInto(d){
+  const host=document.getElementById('revSection'); if(!host) return;
+  const saved=await dbReviews(d.doc_no);
+  if(host.dataset.docno && host.dataset.docno!==(d.doc_no||'')) return; // modal değişmişse iptal
+  host.innerHTML=reviewSectionHtml(d,saved);
+  if(_revTableMissing) host.insertAdjacentHTML('beforeend','<div class="rev-loading">Düzenleme için <code>doc_reviews</code> tablosu gerekli (SQL çalıştırılmalı). Şimdilik otomatik önizleme gösteriliyor.</div>');
+  wireReviewEvents(d,host);
+}
+function wireReviewEvents(d,host){
+  host.querySelectorAll('[data-del]').forEach(b=>b.onclick=async e=>{ e.preventDefault(); if(!confirm('Bu gözden geçirme satırı silinsin mi?'))return; try{ await dbReviewDelete(b.dataset.del); await loadReviewsInto(d); }catch(err){ toast('Silme hatası: '+err.message,'err'); } });
+  host.querySelectorAll('[data-act]').forEach(b=>b.onclick=async e=>{ e.preventDefault(); const act=b.dataset.act;
+    try{
+      if(act==='add'){ host.querySelector('#revAddForm').classList.toggle('hidden'); }
+      else if(act==='addcancel'){ host.querySelector('#revAddForm').classList.add('hidden'); }
+      else if(act==='addsave'){
+        const p=host.querySelector('#raPlanned').value, rr=host.querySelector('#raReal').value, who=host.querySelector('#raWho').value.trim(), ack=host.querySelector('#raAck').value.trim();
+        if(!p&&!rr){ toast('En az bir tarih gir.','err'); return; }
+        await dbReviewInsert([{doc_no:d.doc_no,planned:p||null,realized:rr||null,reviewer:who||null,aciklama:ack||null}]);
+        toast('Satır eklendi.','ok'); await loadReviewsInto(d);
+      }
+      else if(act==='gen'){
+        if(!confirm('Bu doküman için gözden geçirmeler otomatik oluşturulup KAYDEDİLECEK. Varsa mevcut kayıtlar (manuel düzenlemeler dahil) silinir. Devam?'))return;
+        await dbReviewDeleteDoc(d.doc_no); await dbReviewInsert(genRowsFor(d));
+        toast('Otomatik gözden geçirmeler oluşturuldu ve kaydedildi.','ok'); await loadReviewsInto(d);
+      }
+      else if(act==='delall'){
+        if(!confirm('Bu dokümanın TÜM gözden geçirme kayıtları silinsin mi? (otomatik önizlemeye döner)'))return;
+        await dbReviewDeleteDoc(d.doc_no); toast('Silindi.','ok'); await loadReviewsInto(d);
+      }
+    }catch(err){ toast('Hata: '+err.message,'err'); }
+  });
+}
+
+// ---- toplu (tüm dokümanlar) ----
+function guncelRepByDoc(){ const m={}; DOCS.forEach(d=>{ if(isGuncel(d)){ const k=d.doc_no||''; if(k&&!(k in m)) m[k]=d; } }); return m; }
+async function bulkGenAll(){
+  if(!confirm('TÜM dokümanlar için gözden geçirmeler yeniden oluşturulup kaydedilecek.\n\nMevcut TÜM kayıtlar (manuel düzenlemeler dahil) silinecek. Devam?'))return;
+  try{
+    toast('Mevcut kayıtlar siliniyor…');
+    const {error:de}=await sb.from('doc_reviews').delete().gte('id',0); if(de)throw de;
+    const reps=guncelRepByDoc(); const keys=Object.keys(reps);
+    let all=[]; keys.forEach(k=>{ all=all.concat(genRowsFor(reps[k])); });
+    toast(`${keys.length} doküman · ${all.length} kayıt yazılıyor…`);
+    for(let i=0;i<all.length;i+=500){ const {error}=await sb.from('doc_reviews').insert(all.slice(i,i+500)); if(error)throw error; }
+    toast(`Tamam: ${keys.length} doküman, ${all.length} gözden geçirme kaydı oluşturuldu.`,'ok');
+  }catch(err){ toast('Toplu oluşturma hatası: '+err.message,'err'); }
+}
+async function bulkDelAll(){
+  if(!confirm('TÜM dokümanların TÜM gözden geçirme kayıtları silinecek. Devam?'))return;
+  try{ const {error}=await sb.from('doc_reviews').delete().gte('id',0); if(error)throw error; toast('Tüm gözden geçirme kayıtları silindi.','ok'); }
+  catch(err){ toast('Silme hatası: '+err.message,'err'); }
 }
 
 function fld(k,v){ return `<div class="fld"><span class="k">${k}</span><span class="v">${esc(v)||'—'}</span></div>`; }
@@ -232,7 +345,7 @@ function showDetail(i){
   h+=fld('Revizyon No',d.rev_no)+fld('Revizyon Tarihi',fmt(d.rev_tarihi))+`<div class="fld" style="grid-column:1/-1"><span class="k">Revizyon Sebebi</span><span class="v">${esc(d.rev_sebebi)||'—'}</span></div>`;
   h+='<div class="sec">Arşiv & Dağıtım</div>';
   h+=fld('Elektronik Dağıtım',d.elektronik_dagitim)+fld('Matbu Dağıtım',d.matbu_dagitim)+fld('Arşiv Yeri',d.arsiv_yeri)+fld('Arşiv Sorumlusu',d.arsiv_sorumlusu)+fld('Arşiv Süresi (Yıl)',d.arsiv_suresi)+fld('Gözden Geçirme (Ay)',d.gozden_gecirme_suresi)+fld('İmha Yetkilisi',d.imha_yetkilisi)+fld('Proses Sorumlusu',d.proses_sorumlusu);
-  h+=reviewsHtml(d);
+  h+=`<div id="revSection" class="rev-loading" data-docno="${esc(d.doc_no||'')}">Gözden geçirme kayıtları yükleniyor…</div>`;
   if(d.dosya_adi){
     h+=`<div class="filebox"><b>📎 Dosya:</b> ${esc(d.dosya_adi)} <span class="ext">${esc((d.dosya_uzanti||'').replace('.',''))}</span><br>
       <code id="flink">${esc(d.dosya_link)}</code><button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('flink').textContent);this.textContent='✓'">kopyala</button></div>`;
@@ -240,9 +353,16 @@ function showDetail(i){
   h+='</div>';
   $('#mBody').innerHTML=h;
   $('#modalBg').classList.add('on');
+  loadReviewsInto(d);
 }
 function closeModal(){ $('#modalBg').classList.remove('on'); }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+
+// toplu gözden geçirme menüsü
+$('#bulkMenuBtn').onclick=e=>{ e.stopPropagation(); $('#bulkMenu').classList.toggle('on'); };
+document.addEventListener('click',e=>{ if(!e.target.closest('.menu-wrap')) $('#bulkMenu').classList.remove('on'); });
+$('#bulkGenBtn').onclick=async()=>{ $('#bulkMenu').classList.remove('on'); await bulkGenAll(); };
+$('#bulkDelBtn').onclick=async()=>{ $('#bulkMenu').classList.remove('on'); await bulkDelAll(); };
 
 // ====================== AUTH ======================
 function authMsg(msg,type='err'){ $('#authMsg').innerHTML = msg?`<div class="msg ${type}">${msg}</div>`:''; }
