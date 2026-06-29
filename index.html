@@ -80,6 +80,18 @@
   .menu-pop button:hover{background:#eef4ff}
   .menu-pop button.danger{color:#b91c1c}.menu-pop button.danger:hover{background:#fef2f2}
   .menu-pop .mhdr{font-size:.74em;color:var(--muted);padding:6px 11px 2px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  /* sıradaki kod tablosu */
+  .code-wrap{max-height:62vh;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .code-tbl{width:100%;border-collapse:collapse;font-size:.9em}
+  .code-tbl th{position:sticky;top:0;background:var(--b);color:#fff;text-align:left;padding:9px 12px;font-weight:600;white-space:nowrap;z-index:1}
+  .code-tbl td{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .code-tbl tr:hover td{background:#f6f9ff}
+  .code-son{font-weight:700;color:#334155}
+  .code-next{font-weight:800;color:#15803d;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .code-next:hover{text-decoration:underline}
+  .code-next .cp{font-size:.78em;color:#94a3b8}
+  .code-tip{color:var(--muted);font-size:.9em}
+  .code-adet{display:inline-block;min-width:22px;text-align:center;background:#eef2ff;color:var(--b);border-radius:6px;padding:1px 7px;font-weight:700;font-size:.85em}
   /* auth */
   #auth{position:fixed;inset:0;background:linear-gradient(135deg,#0f2747,#1e3c72);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
   .auth-card{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.4);padding:30px 28px;width:100%;max-width:380px;text-align:center}
@@ -116,6 +128,7 @@
   <span style="opacity:.8;font-size:.85em">Güncel Doküman Listesi · LeanSys</span>
   <span class="sp"></span>
   <button class="btn" onclick="loadDocs()">🔄 Yenile</button>
+  <button class="btn" id="codeBtn" onclick="openCodeModal()">🔢 Sıradaki Kod</button>
   <div class="menu-wrap">
     <button class="btn" id="bulkMenuBtn">⚙ Gözden Geçirme ▾</button>
     <div class="menu-pop" id="bulkMenu">
@@ -145,6 +158,20 @@
     </table>
   </div>
 </div>
+</div>
+
+<div class="modal-bg" id="codeModalBg" onclick="if(event.target===this)closeCodeModal()">
+  <div class="modal">
+    <h2>🔢 Sıradaki Doküman Kodu<span class="x" onclick="closeCodeModal()">✕</span></h2>
+    <div class="body">
+      <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <input id="codeSearch" placeholder="🔍 Önek veya tür ara (PR, TL, Prosedür…)" oninput="renderCodeTable()" style="flex:1;min-width:200px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;font-size:.92em">
+        <label style="font-size:.86em;color:var(--muted)"><input type="checkbox" id="codeMulti" checked onchange="renderCodeTable()"> yalnızca seriler (2+)</label>
+        <span class="stat" id="codeStat" style="color:var(--muted);font-weight:600;font-size:.86em"></span>
+      </div>
+      <div id="codeTableWrap"></div>
+    </div>
+  </div>
 </div>
 
 <div id="toast"></div>
@@ -356,7 +383,36 @@ function showDetail(i){
   loadReviewsInto(d);
 }
 function closeModal(){ $('#modalBg').classList.remove('on'); }
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+
+// ====================== SIRADAKİ KOD ======================
+let CODEIDX=[];
+function parseCode(no){ const s=String(no||'').trim(); const m=s.match(/^(.*?)(\d+)\s*$/); if(!m||!m[1]) return null; return {prefix:m[1],num:parseInt(m[2],10),width:m[2].length,raw:s}; }
+function buildCodeIndex(){
+  const map={};
+  DOCS.forEach(d=>{ const no=d.doc_no; if(!no) return; const p=parseCode(no); if(!p) return; const k=p.prefix;
+    if(!map[k]) map[k]={prefix:k,max:-1,maxCode:'',width:p.width,tip:d.tip,docs:new Set()};
+    map[k].docs.add(no);
+    if(p.num>map[k].max){ map[k].max=p.num; map[k].maxCode=p.raw; map[k].width=p.width; map[k].tip=d.tip; }
+  });
+  return Object.values(map).map(e=>({prefix:e.prefix,tip:e.tip,sonKod:e.maxCode,siradaki:e.prefix+String(e.max+1).padStart(e.width,'0'),adet:e.docs.size}))
+    .sort((a,b)=>a.prefix.localeCompare(b.prefix,'tr'));
+}
+function openCodeModal(){ if(!DOCS.length){ toast('Önce dokümanlar yüklensin.','err'); return; } CODEIDX=buildCodeIndex(); $('#codeSearch').value=''; renderCodeTable(); $('#codeModalBg').classList.add('on'); }
+function closeCodeModal(){ $('#codeModalBg').classList.remove('on'); }
+function renderCodeTable(){
+  const q=($('#codeSearch').value||'').trim().toLocaleLowerCase('tr');
+  const multi=$('#codeMulti').checked;
+  const rows=CODEIDX.filter(r=>{ if(multi && r.adet<2) return false; if(q){ const h=(r.prefix+' '+(r.tip||'')+' '+r.sonKod).toLocaleLowerCase('tr'); if(!h.includes(q)) return false; } return true; });
+  $('#codeStat').textContent=rows.length+' seri';
+  if(!rows.length){ $('#codeTableWrap').innerHTML='<div class="empty">Eşleşen yok</div>'; return; }
+  let h='<div class="code-wrap"><table class="code-tbl"><thead><tr><th>Önek</th><th>Tür</th><th>Son Kod</th><th>Sıradaki Kod</th><th>Adet</th></tr></thead><tbody>';
+  rows.forEach(r=>{ h+=`<tr><td><b>${esc(r.prefix)}</b></td><td class="code-tip">${esc(r.tip)}</td><td class="code-son">${esc(r.sonKod)}</td><td><span class="code-next" onclick="copyNext('${esc(r.siradaki)}')">${esc(r.siradaki)} <span class="cp">⧉ kopyala</span></span></td><td><span class="code-adet">${r.adet}</span></td></tr>`; });
+  h+='</tbody></table></div>';
+  $('#codeTableWrap').innerHTML=h;
+}
+function copyNext(code){ if(navigator.clipboard) navigator.clipboard.writeText(code); toast('Kopyalandı: '+code,'ok'); }
+
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); closeCodeModal(); } });
 
 // toplu gözden geçirme menüsü
 $('#bulkMenuBtn').onclick=e=>{ e.stopPropagation(); $('#bulkMenu').classList.toggle('on'); };
