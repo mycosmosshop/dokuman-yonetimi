@@ -107,6 +107,10 @@
   .msg.err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
   .msg.ok{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
   .hidden{display:none!important}
+  /* admin kilidi: kilitliyken admin-only öğeler gizli */
+  .menu-wrap.admin-only{display:none}
+  body.admin .menu-wrap.admin-only{display:inline-block}
+  #adminBtn.on{background:#dcfce7;color:#15803d}
 </style>
 </head>
 <body>
@@ -129,7 +133,8 @@
   <span class="sp"></span>
   <button class="btn" onclick="loadDocs()">🔄 Yenile</button>
   <button class="btn" id="codeBtn" onclick="openCodeModal()">🔢 Sıradaki Kod</button>
-  <div class="menu-wrap">
+  <button class="btn" id="adminBtn" onclick="toggleAdmin()" title="Admin kilidi">🔒</button>
+  <div class="menu-wrap admin-only">
     <button class="btn" id="bulkMenuBtn">⚙ Gözden Geçirme ▾</button>
     <div class="menu-pop" id="bulkMenu">
       <div class="mhdr">Tüm dokümanlar</div>
@@ -187,8 +192,19 @@
 const SUPABASE_URL='https://nnubrxbpthmkitueixbh.supabase.co';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5udWJyeGJwdGhta2l0dWVpeGJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NjI2MDIsImV4cCI6MjA5NjEzODYwMn0.CHZUOylf_q8kkOQbFf9VWZ6-doUTlynmAhahM2EuImE';
 const sb=supabase.createClient(SUPABASE_URL,ANON);
-let DOCS=[], SHOWN=[], MAXREV={};
+let DOCS=[], SHOWN=[], MAXREV={}, _revDoc=null;
 function isGuncel(d){ const k=d.doc_no||''; const rv=parseInt(d.rev_no,10); const r=isNaN(rv)?-1:rv; return r===MAXREV[k]; }
+
+// ====================== ADMIN KİLİDİ ======================
+const ADMIN_HASH=3191205823;   // _seedHash('sanifoam2026')
+let ADMIN=false;
+function applyAdmin(){ document.body.classList.toggle('admin',ADMIN); const b=document.getElementById('adminBtn'); if(b){ b.textContent=ADMIN?'🔓 Admin':'🔒'; b.classList.toggle('on',ADMIN); b.title=ADMIN?'Admin açık — kilitlemek için tıkla':'Admin kilidi (şifre gerekli)'; } }
+function toggleAdmin(){
+  if(ADMIN){ ADMIN=false; localStorage.removeItem('dok_admin'); applyAdmin(); toast('Admin kilitlendi.'); if(_revDoc) loadReviewsInto(_revDoc); return; }
+  const p=prompt('Admin şifresi:'); if(p===null) return;
+  if(_seedHash(p)===ADMIN_HASH){ ADMIN=true; localStorage.setItem('dok_admin','1'); applyAdmin(); toast('Admin açıldı — düzenleme aktif.','ok'); if(_revDoc) loadReviewsInto(_revDoc); }
+  else toast('Şifre hatalı.','err');
+}
 const $=s=>document.querySelector(s);
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=d=>{ if(!d)return''; const s=String(d).slice(0,10); const p=s.split('-'); return p.length===3?`${p[2]}.${p[1]}.${p[0]}`:s; };
@@ -292,18 +308,18 @@ function reviewSectionHtml(d,saved){
     : genReviews(d).map(r=>({planned:r.planned,real:r.real,reviewer:r.reviewer,aciklama:r.aciklama,id:null}));
   let rows='';
   list.forEach(r=>{ const gap=(r.planned&&r.real)?Math.round((r.real-r.planned)/86400000):0;
-    rows+=`<tr><td>${r.planned?_fmtD(r.planned):'-'}</td><td class="${gap>5?'late':''}">${r.real?_fmtD(r.real):'-'}</td><td>${esc(r.reviewer)}</td><td>${esc(r.aciklama||'-')}</td><td class="rev-act">${r.id?`<button class="rev-x" data-del="${r.id}" title="Sil">✕</button>`:''}</td></tr>`; });
-  if(!rows) rows='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:14px">Kayıt yok</td></tr>';
+    rows+=`<tr><td>${r.planned?_fmtD(r.planned):'-'}</td><td class="${gap>5?'late':''}">${r.real?_fmtD(r.real):'-'}</td><td>${esc(r.reviewer)}</td><td>${esc(r.aciklama||'-')}</td>${ADMIN?`<td class="rev-act">${r.id?`<button class="rev-x" data-del="${r.id}" title="Sil">✕</button>`:''}</td>`:''}</tr>`; });
+  if(!rows) rows=`<tr><td colspan="${ADMIN?5:4}" style="text-align:center;color:#94a3b8;padding:14px">Kayıt yok</td></tr>`;
   const badge=isSaved?`(${list.length} kayıt · periyot ${per} ay)`:`(${list.length} kayıt · periyot ${per} ay · önizleme)`;
-  const ctrls=`<div class="rev-ctrls">`
+  const ctrls=ADMIN?(`<div class="rev-ctrls">`
     +`<button class="rev-btn" data-act="gen">↻ Otomatik oluştur${isSaved?' (yeniden)':' ve kaydet'}</button>`
     +`<button class="rev-btn" data-act="add">＋ Satır ekle</button>`
     +(isSaved?`<button class="rev-btn danger" data-act="delall">🗑 Tümünü sil</button>`:'')
     +`</div>`
-    +`<div class="rev-add hidden" id="revAddForm"><input type="date" id="raPlanned" title="Planlanan"><input type="date" id="raReal" title="Gerçekleşen"><input id="raWho" placeholder="Kontrol Eden" value="${esc(d.hazirlayan||'')}"><input id="raAck" placeholder="Açıklama" value="${esc(REV_ACIKLAMA)}"><button class="rev-btn" data-act="addsave">Kaydet</button><button class="rev-btn" data-act="addcancel">İptal</button></div>`;
+    +`<div class="rev-add hidden" id="revAddForm"><input type="date" id="raPlanned" title="Planlanan"><input type="date" id="raReal" title="Gerçekleşen"><input id="raWho" placeholder="Kontrol Eden" value="${esc(d.hazirlayan||'')}"><input id="raAck" placeholder="Açıklama" value="${esc(REV_ACIKLAMA)}"><button class="rev-btn" data-act="addsave">Kaydet</button><button class="rev-btn" data-act="addcancel">İptal</button></div>`):'';
   return `<details class="rev-det"><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">${badge}</span></summary>`
     +ctrls
-    +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan</th><th>Gerçekleşen</th><th>Kontrol Eden</th><th>Açıklama</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+    +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan</th><th>Gerçekleşen</th><th>Kontrol Eden</th><th>Açıklama</th>${ADMIN?'<th></th>':''}</tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 async function loadReviewsInto(d){
   const host=document.getElementById('revSection'); if(!host) return;
@@ -361,6 +377,7 @@ async function bulkDelAll(){
 function fld(k,v){ return `<div class="fld"><span class="k">${k}</span><span class="v">${esc(v)||'—'}</span></div>`; }
 function showDetail(i){
   const d=SHOWN[i]; if(!d) return;
+  _revDoc=d;
   $('#mTitle').textContent=`${d.doc_no||''} — ${d.doc_adi||''}`;
   let h='<div class="grid">';
   h+='<div class="sec">Genel</div>';
@@ -382,7 +399,7 @@ function showDetail(i){
   $('#modalBg').classList.add('on');
   loadReviewsInto(d);
 }
-function closeModal(){ $('#modalBg').classList.remove('on'); }
+function closeModal(){ $('#modalBg').classList.remove('on'); _revDoc=null; }
 
 // ====================== SIRADAKİ KOD ======================
 let CODEIDX=[];
@@ -451,6 +468,7 @@ function boot(session){
   if(!session?.user){ $('#auth').classList.remove('hidden'); $('#app').classList.add('hidden'); return; }
   $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden');
   $('#whoEmail').textContent=session.user.email||'';
+  ADMIN=localStorage.getItem('dok_admin')==='1'; applyAdmin();
   if(BOOTED) return; BOOTED=true;
   loadDocs();
 }
