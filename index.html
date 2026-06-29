@@ -227,7 +227,8 @@
         <h3>3) Oluştur</h3>
         <p class="tpl-hint">Etiketler güncel veriyle doldurulur. Metadata değişince yeniden oluştur → her zaman güncel.</p>
         <button class="tpl-btn go" id="tplGenBtn" onclick="tplGenerate()" disabled>⬇ Oluştur ve indir</button>
-        <button class="tpl-btn" id="tplDriveBtn" onclick="tplSaveDrive()" disabled title="Google Drive bağlanınca aktif">☁ Drive'a kaydet</button>
+        <button class="tpl-btn" id="tplDriveBtn" onclick="tplSaveDrive()" disabled>☁ Drive'a kaydet</button>
+        <div id="tplDriveStatus" class="tpl-muted"></div>
         <div id="tplMsg" class="tpl-muted"></div>
       </div>
     </div>
@@ -537,7 +538,7 @@ function switchTab(t){
   document.getElementById('tabTemplates').classList.toggle('hidden',list);
   document.getElementById('tabBtnList').classList.toggle('on',list);
   document.getElementById('tabBtnTpl').classList.toggle('on',!list);
-  if(!list){ tplRenderTags(); onTplSrc(); }
+  if(!list){ tplRenderTags(); onTplSrc(); updateDriveStatus(); }
 }
 function tplRenderTags(){ document.getElementById('tplTagList').innerHTML=TPL_FIELDS.map(f=>`<code>{{${f[0]}}}</code>`).join(' '); }
 function onTplFile(){
@@ -545,7 +546,7 @@ function onTplFile(){
   _tplName=f.name; _tplExt=(f.name.split('.').pop()||'').toLowerCase();
   if(_tplExt!=='docx'&&_tplExt!=='xlsx'){ toast('Sadece .docx veya .xlsx','err'); return; }
   const r=new FileReader();
-  r.onload=()=>{ _tplBuf=r.result; document.getElementById('tplFileInfo').textContent=`Seçildi: ${f.name}`; updateTplGenBtn(); };
+  r.onload=()=>{ _tplBuf=r.result; document.getElementById('tplFileInfo').textContent=`Seçildi: ${f.name}`; updateTplGenBtn(); updateDriveStatus(); };
   r.readAsArrayBuffer(f);
 }
 function onTplSrc(){
@@ -602,7 +603,36 @@ async function tplGenerate(){
     dlBlob(blob,outName); msg.textContent='✅ İndirildi: '+outName;
   }catch(e){ const det=(e.properties&&e.properties.errors)?e.properties.errors.map(x=>x.properties&&x.properties.explanation).join('; '):''; msg.textContent='Hata: '+e.message+(det?' ('+det+')':''); toast('Şablon hatası: '+e.message,'err'); }
 }
-function tplSaveDrive(){ toast('Google Drive henüz bağlanmadı (Client ID bekleniyor).'); }
+// --- Drive (VDA ile aynı Apps Script backend; klasör: Kalite_Dokümanları) ---
+const DRIVE_SECRET='Sanifoam2026Drive';
+const DRIVE_FOLDER='Kalite_Dokümanları';
+function driveUrl(){ return localStorage.getItem('dok_drive_url')||''; }
+function setDriveUrl(){
+  const u=prompt('Google Drive (Apps Script) Web App URL (.../exec):', driveUrl());
+  if(u===null) return; localStorage.setItem('dok_drive_url',u.trim()); updateDriveStatus(); toast('Drive URL kaydedildi.','ok');
+}
+function updateDriveStatus(){
+  const el=document.getElementById('tplDriveStatus'); const on=!!driveUrl();
+  if(el) el.innerHTML = on ? 'Drive: <b style="color:#15803d">bağlı</b> · <a href="javascript:setDriveUrl()">değiştir</a>'
+                           : '<a href="javascript:setDriveUrl()">⚙ Drive\'ı bağla (URL gir)</a>';
+  const b=document.getElementById('tplDriveBtn'); if(b) b.disabled=!(_tplBuf&&on);
+}
+function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=rej; r.readAsDataURL(blob); }); }
+async function tplSaveDrive(){
+  if(!_tplBuf){ toast('Önce şablon seç.','err'); return; }
+  let url=driveUrl(); if(!url){ setDriveUrl(); url=driveUrl(); if(!url) return; }
+  const msg=document.getElementById('tplMsg'); msg.textContent='Drive\'a kaydediliyor…';
+  try{
+    const base=(_tplData.dok_no||'dokuman').replace(/[\\/:*?"<>|]/g,'_'); let blob,name,mime;
+    if(_tplExt==='docx'){ blob=fillDocx(_tplBuf,_tplData); name=base+'.docx'; mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }
+    else { blob=await fillXlsx(_tplBuf,_tplData); name=base+'.xlsx'; mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; }
+    const data=await blobToB64(blob);
+    const r=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name,mime,data})});
+    const j=await r.json();
+    if(j.ok){ msg.innerHTML='✅ Drive: <a href="'+esc(j.view||'#')+'" target="_blank" rel="noopener">'+esc(name)+'</a>'; toast('Drive\'a kaydedildi.','ok'); }
+    else { msg.textContent='Drive hatası: '+(j.error||'?'); toast('Drive hatası: '+(j.error||'?'),'err'); }
+  }catch(e){ msg.textContent='Hata: '+e.message; toast('Drive hatası: '+e.message,'err'); }
+}
 
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); closeCodeModal(); } });
 
