@@ -1,0 +1,7 @@
+# Sırlar / yereldeki yardımcılar — ASLA public repoya gitmez
+*.sql
+*.gs
+*.env
+.env*
+*.key
+node_modules/
