@@ -44,14 +44,20 @@
   .filebox{grid-column:1/-1;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:6px}
   .filebox code{font-size:.85em;word-break:break-all;color:#0f172a}
   .copy{margin-left:8px;font-size:.8em;background:var(--b);color:#fff;border:none;border-radius:6px;padding:3px 9px;cursor:pointer}
-  /* gözden geçirme tablosu */
-  .rev-wrap{grid-column:1/-1;max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:4px}
+  /* gözden geçirme — gizli açılır (dropdown) */
+  .rev-det{grid-column:1/-1;margin-top:10px}
+  .rev-det summary{cursor:pointer;font-weight:700;color:var(--b);border-bottom:2px solid #e0ecff;padding-bottom:3px;list-style:none;display:flex;align-items:center;gap:7px;user-select:none}
+  .rev-det summary::-webkit-details-marker{display:none}
+  .rev-det summary::before{content:'▸';font-size:.85em;color:var(--b2);transition:transform .15s}
+  .rev-det[open] summary::before{transform:rotate(90deg)}
+  .rev-det summary:hover{color:var(--b2)}
+  .rev-cnt{font-weight:400;color:var(--muted);font-size:.8em}
+  .rev-wrap{max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:8px}
   .rev-tbl{width:100%;border-collapse:collapse;font-size:.85em}
   .rev-tbl th{position:sticky;top:0;background:#eef4ff;color:var(--b);text-align:left;padding:7px 11px;font-weight:600;white-space:nowrap;border-bottom:1px solid var(--line);z-index:1}
   .rev-tbl td{padding:5px 11px;border-bottom:1px solid #eef1f6;white-space:nowrap}
   .rev-tbl tr:last-child td{border-bottom:none}
   .rev-tbl td.late{color:#b45309}
-  .rev-note{grid-column:1/-1;font-size:.78em;color:var(--muted);margin-top:5px}
   /* auth */
   #auth{position:fixed;inset:0;background:linear-gradient(135deg,#0f2747,#1e3c72);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
   .auth-card{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.4);padding:30px 28px;width:100%;max-width:380px;text-align:center}
@@ -94,6 +100,7 @@
 <div class="wrap">
   <div class="filters">
     <input id="fAra" placeholder="🔍 No / Ad / Hazırlayan ara…" oninput="render()">
+    <select id="fGuncel" onchange="render()"><option value="">Tümü (tüm revizyonlar)</option><option value="guncel">Güncel yayındaki dokümanlar</option></select>
     <select id="fTip" onchange="render()"><option value="">Tip (tümü)</option></select>
     <select id="fSube" onchange="render()"><option value="">Şube (tümü)</option></select>
     <label style="font-size:.88em;color:var(--muted)"><input type="checkbox" id="fSonfile" onchange="render()"> sadece dosyası olanlar</label>
@@ -121,7 +128,8 @@
 const SUPABASE_URL='https://nnubrxbpthmkitueixbh.supabase.co';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5udWJyeGJwdGhta2l0dWVpeGJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NjI2MDIsImV4cCI6MjA5NjEzODYwMn0.CHZUOylf_q8kkOQbFf9VWZ6-doUTlynmAhahM2EuImE';
 const sb=supabase.createClient(SUPABASE_URL,ANON);
-let DOCS=[], SHOWN=[];
+let DOCS=[], SHOWN=[], MAXREV={};
+function isGuncel(d){ const k=d.doc_no||''; const rv=parseInt(d.rev_no,10); const r=isNaN(rv)?-1:rv; return r===MAXREV[k]; }
 const $=s=>document.querySelector(s);
 const esc=s=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt=d=>{ if(!d)return''; const s=String(d).slice(0,10); const p=s.split('-'); return p.length===3?`${p[2]}.${p[1]}.${p[0]}`:s; };
@@ -135,6 +143,9 @@ async function loadDocs(){
     all=all.concat(data||[]); if(!data||data.length<1000) break;
   }
   DOCS=all;
+  // "Güncel yayındaki" = her Doküman No için en yüksek revizyon no (eşit rev'ler birlikte güncel sayılır)
+  MAXREV={};
+  DOCS.forEach(d=>{ const k=d.doc_no||''; const rv=parseInt(d.rev_no,10); const r=isNaN(rv)?-1:rv; if(!(k in MAXREV)||r>MAXREV[k]) MAXREV[k]=r; });
   // doldur filtre seçenekleri
   const tips=[...new Set(DOCS.map(d=>d.tip).filter(Boolean))].sort();
   const subes=[...new Set(DOCS.map(d=>d.sube).filter(Boolean))].sort();
@@ -145,8 +156,9 @@ async function loadDocs(){
 
 function render(){
   const q=$('#fAra').value.trim().toLocaleLowerCase('tr');
-  const tip=$('#fTip').value, sube=$('#fSube').value, onlyFile=$('#fSonfile').checked;
+  const tip=$('#fTip').value, sube=$('#fSube').value, onlyFile=$('#fSonfile').checked, guncel=$('#fGuncel').value;
   let rows=DOCS.filter(d=>{
+    if(guncel==='guncel' && !isGuncel(d)) return false;
     if(tip && d.tip!==tip) return false;
     if(sube && d.sube!==sube) return false;
     if(onlyFile && !d.dosya_adi) return false;
@@ -205,12 +217,10 @@ function genReviews(d){
 function reviewsHtml(d){
   const revs=genReviews(d); if(!revs.length) return '';
   const per=parseInt(d.gozden_gecirme_suresi,10)||12;
-  let h='<div class="sec">Gözden Geçirme Kayıtları <span style="font-weight:400;color:var(--muted);font-size:.8em">('+revs.length+' kayıt · periyot '+per+' ay · otomatik)</span></div>';
-  h+='<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan Tarih</th><th>Gerçekleşen Tarih</th><th>Kontrol Eden</th><th>Açıklama</th></tr></thead><tbody>';
-  revs.forEach(r=>{ h+=`<tr><td>${_fmtD(r.planned)}</td><td class="${r.gap>5?'late':''}">${_fmtD(r.real)}</td><td>${esc(r.reviewer)}</td><td>-</td></tr>`; });
-  h+='</tbody></table></div>';
-  h+='<div class="rev-note">Otomatik üretilmiş gözden geçirme planı (doküman periyoduna göre, planlanan↔gerçekleşen ≤10 gün sapma).</div>';
-  return h;
+  let rows='';
+  revs.forEach(r=>{ rows+=`<tr><td>${_fmtD(r.planned)}</td><td class="${r.gap>5?'late':''}">${_fmtD(r.real)}</td><td>${esc(r.reviewer)}</td><td>-</td></tr>`; });
+  return `<details class="rev-det"><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">(${revs.length} kayıt · periyot ${per} ay)</span></summary>`
+    +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan Tarih</th><th>Gerçekleşen Tarih</th><th>Kontrol Eden</th><th>Açıklama</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
 function fld(k,v){ return `<div class="fld"><span class="k">${k}</span><span class="v">${esc(v)||'—'}</span></div>`; }
