@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Doküman Yönetimi</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.50.0/build/docxtemplater.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <style>
   :root{--b:#1e3c72;--b2:#2a5298;--line:#e3e8ef;--muted:#6b7280;--bg:#f4f6f9}
   *{box-sizing:border-box}
@@ -108,6 +111,33 @@
   .msg.err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}
   .msg.ok{background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0}
   .hidden{display:none!important}
+  /* sekmeler */
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tab{background:#fff;border:1px solid var(--line);border-bottom:none;color:var(--muted);padding:10px 18px;border-radius:10px 10px 0 0;cursor:pointer;font-weight:600;font-size:.95em}
+  .tab.on{background:var(--b);color:#fff;border-color:var(--b)}
+  /* şablonlar sekmesi */
+  .tpl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+  .tpl-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}
+  .tpl-card h3{margin:0 0 8px;color:var(--b);font-size:1.02em}
+  .tpl-hint{font-size:.82em;color:var(--muted);margin:0 0 10px}
+  .tpl-muted{font-size:.82em;color:var(--muted);margin-top:8px;word-break:break-word}
+  .tpl-card input[type=file]{font-size:.85em;width:100%}
+  .tpl-src{display:flex;flex-direction:column;gap:6px;font-size:.9em;margin-bottom:10px}
+  #tplDocSearch,.tpl-fields input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.88em}
+  .tpl-results{max-height:170px;overflow:auto;margin-top:6px;border:1px solid var(--line);border-radius:8px;display:none}
+  .tpl-results.on{display:block}
+  .tpl-results div{padding:7px 10px;cursor:pointer;font-size:.85em;border-bottom:1px solid #eef1f6}
+  .tpl-results div:hover{background:#eef4ff}
+  .tpl-fields{margin-top:10px;display:flex;flex-direction:column;gap:7px}
+  .tpl-fields label{font-size:.78em;color:var(--muted);display:block;margin-bottom:2px}
+  .tpl-fields .fwrap{display:flex;flex-direction:column}
+  .tpl-btn{display:block;width:100%;margin-top:8px;padding:11px;border:1px solid var(--line);background:#f8fafc;color:var(--b);border-radius:9px;cursor:pointer;font-weight:700;font-size:.95em}
+  .tpl-btn:hover{background:#eef4ff}
+  .tpl-btn.go{background:#15803d;color:#fff;border-color:#15803d}.tpl-btn.go:hover{background:#166534}
+  .tpl-btn:disabled{opacity:.5;cursor:not-allowed}
+  .tpl-tags{margin-top:10px;font-size:.82em}
+  .tpl-tags summary{cursor:pointer;color:var(--b2);font-weight:600}
+  .tpl-tags code{background:#eef2ff;color:var(--b);padding:1px 6px;border-radius:5px;font-size:.92em;margin:2px;display:inline-block}
   /* admin kilidi: kilitliyken admin-only öğeler gizli */
   .menu-wrap.admin-only{display:none}
   body.admin .menu-wrap.admin-only{display:inline-block}
@@ -147,6 +177,11 @@
   <button class="btn" id="logoutBtn" style="background:rgba(255,255,255,.18);color:#fff">Çıkış</button>
 </header>
 <div class="wrap">
+  <div class="tabs">
+    <button class="tab on" id="tabBtnList" onclick="switchTab('list')">📋 Doküman Listesi</button>
+    <button class="tab" id="tabBtnTpl" onclick="switchTab('tpl')">🧩 Şablonlar</button>
+  </div>
+  <div id="tabList">
   <div class="filters">
     <input id="fAra" placeholder="🔍 No / Ad / Hazırlayan ara…" oninput="render()">
     <select id="fGuncel" onchange="render()"><option value="">Tümü (tüm revizyonlar)</option><option value="guncel">Güncel yayındaki dokümanlar</option></select>
@@ -163,6 +198,40 @@
       <tbody id="tbody"><tr><td colspan="9" class="empty">Yükleniyor…</td></tr></tbody>
     </table>
   </div>
+  </div><!-- /#tabList -->
+
+  <div id="tabTemplates" class="hidden">
+    <div class="tpl-grid">
+      <div class="tpl-card">
+        <h3>1) Şablon dosyası</h3>
+        <p class="tpl-hint">Word (.docx) veya Excel (.xlsx). İçine değişkenleri <code>{{dok_no}}</code> gibi yaz. Excel'de hücreye yaz.</p>
+        <input type="file" id="tplFile" accept=".docx,.xlsx" onchange="onTplFile()">
+        <div id="tplFileInfo" class="tpl-muted">Henüz dosya seçilmedi.</div>
+        <details class="tpl-tags"><summary>Kullanılabilir etiketler</summary>
+          <div id="tplTagList"></div>
+        </details>
+      </div>
+      <div class="tpl-card">
+        <h3>2) Veri kaynağı</h3>
+        <div class="tpl-src">
+          <label><input type="radio" name="tplSrc" value="doc" checked onchange="onTplSrc()"> LeanSys dokümanından çek</label>
+          <label><input type="radio" name="tplSrc" value="manual" onchange="onTplSrc()"> Elle gir</label>
+        </div>
+        <div id="tplDocPick">
+          <input id="tplDocSearch" placeholder="🔍 Doküman no / ad ara…" oninput="tplDocSuggest()" autocomplete="off">
+          <div id="tplDocResults" class="tpl-results"></div>
+        </div>
+        <div id="tplFields" class="tpl-fields"></div>
+      </div>
+      <div class="tpl-card">
+        <h3>3) Oluştur</h3>
+        <p class="tpl-hint">Etiketler güncel veriyle doldurulur. Metadata değişince yeniden oluştur → her zaman güncel.</p>
+        <button class="tpl-btn go" id="tplGenBtn" onclick="tplGenerate()" disabled>⬇ Oluştur ve indir</button>
+        <button class="tpl-btn" id="tplDriveBtn" onclick="tplSaveDrive()" disabled title="Google Drive bağlanınca aktif">☁ Drive'a kaydet</button>
+        <div id="tplMsg" class="tpl-muted"></div>
+      </div>
+    </div>
+  </div><!-- /#tabTemplates -->
 </div>
 </div>
 
@@ -445,6 +514,95 @@ function renderCodeTable(){
   $('#codeTableWrap').innerHTML=h;
 }
 function copyNext(code){ if(navigator.clipboard) navigator.clipboard.writeText(code); toast('Kopyalandı: '+code,'ok'); }
+
+// ====================== ŞABLONLAR (M-Files tarzı) ======================
+const TPL_FIELDS=[
+  ['dok_no','Doküman No'],['doc_adi','Doküman Adı'],['tip','Tip'],
+  ['rev_no','Revizyon No'],['rev_tarihi','Revizyon Tarihi'],['rev_sebebi','Revizyon Sebebi'],
+  ['yayin_tarihi','Yayın Tarihi'],['hazirlanma_tarihi','Hazırlanma Tarihi'],
+  ['onay_tarihi','Onay Tarihi'],['hazirlayan','Hazırlayan'],['onaylayan','Onaylayan'],
+  ['sube','Şube'],['bugun','Bugün']
+];
+let _tplBuf=null, _tplName='', _tplExt='', _tplData={};
+function tplDataFromDoc(d){ return {
+  dok_no:d.doc_no||'', doc_no:d.doc_no||'', doc_adi:d.doc_adi||'', tip:d.tip||'',
+  rev_no:(d.rev_no==null?'':d.rev_no)+'', rev_tarihi:fmt(d.rev_tarihi), rev_sebebi:d.rev_sebebi||'',
+  yayin_tarihi:fmt(d.yayin_tarihi), hazirlanma_tarihi:fmt(d.hazirlanma_tarihi),
+  onay_tarihi:fmt(d.onay_tarihi), hazirlayan:d.hazirlayan||'', onaylayan:d.onaylayan||'',
+  sube:d.sube||'', bugun:fmt(new Date().toISOString())
+}; }
+function switchTab(t){
+  const list=t==='list';
+  document.getElementById('tabList').classList.toggle('hidden',!list);
+  document.getElementById('tabTemplates').classList.toggle('hidden',list);
+  document.getElementById('tabBtnList').classList.toggle('on',list);
+  document.getElementById('tabBtnTpl').classList.toggle('on',!list);
+  if(!list){ tplRenderTags(); onTplSrc(); }
+}
+function tplRenderTags(){ document.getElementById('tplTagList').innerHTML=TPL_FIELDS.map(f=>`<code>{{${f[0]}}}</code>`).join(' '); }
+function onTplFile(){
+  const f=document.getElementById('tplFile').files[0]; if(!f) return;
+  _tplName=f.name; _tplExt=(f.name.split('.').pop()||'').toLowerCase();
+  if(_tplExt!=='docx'&&_tplExt!=='xlsx'){ toast('Sadece .docx veya .xlsx','err'); return; }
+  const r=new FileReader();
+  r.onload=()=>{ _tplBuf=r.result; document.getElementById('tplFileInfo').textContent=`Seçildi: ${f.name}`; updateTplGenBtn(); };
+  r.readAsArrayBuffer(f);
+}
+function onTplSrc(){
+  const src=(document.querySelector('input[name=tplSrc]:checked')||{}).value||'doc';
+  document.getElementById('tplDocPick').classList.toggle('hidden',src!=='doc');
+  tplRenderFields();
+}
+function tplRenderFields(){
+  document.getElementById('tplFields').innerHTML=TPL_FIELDS.map(f=>`<div class="fwrap"><label>${esc(f[1])} <code>{{${f[0]}}}</code></label><input data-fk="${f[0]}" value="${esc(_tplData[f[0]]||'')}" oninput="_tplData['${f[0]}']=this.value"></div>`).join('');
+}
+function tplDocSuggest(){
+  const q=document.getElementById('tplDocSearch').value.trim().toLocaleLowerCase('tr');
+  const box=document.getElementById('tplDocResults');
+  if(!q){ box.classList.remove('on'); box.innerHTML=''; return; }
+  const seen=new Set(), out=[];
+  for(const d of DOCS){ if(!d.doc_no||seen.has(d.doc_no)) continue; const h=((d.doc_no||'')+' '+(d.doc_adi||'')).toLocaleLowerCase('tr'); if(h.includes(q)){ seen.add(d.doc_no); out.push(d); if(out.length>=40) break; } }
+  box.innerHTML=out.length?out.map(d=>`<div onclick="tplPickDoc('${esc(d.doc_no)}')"><b>${esc(d.doc_no)}</b> — ${esc(d.doc_adi)}</div>`).join(''):'<div>Eşleşme yok</div>';
+  box.classList.add('on');
+}
+function tplPickDoc(no){
+  let pick=null; for(const d of DOCS){ if(d.doc_no===no && isGuncel(d)){ pick=d; break; } }
+  if(!pick) for(const d of DOCS){ if(d.doc_no===no){ pick=d; break; } }
+  if(!pick) return;
+  _tplData=tplDataFromDoc(pick);
+  document.getElementById('tplDocSearch').value=pick.doc_no+' — '+(pick.doc_adi||'');
+  document.getElementById('tplDocResults').classList.remove('on');
+  tplRenderFields();
+}
+function updateTplGenBtn(){ document.getElementById('tplGenBtn').disabled=!_tplBuf; }
+function fillDocx(buf,data){
+  const D=window.docxtemplater||window.Docxtemplater;
+  const zip=new PizZip(buf);
+  const doc=new D(zip,{paragraphLoop:true,linebreaks:true,nullGetter:()=>'',delimiters:{start:'{{',end:'}}'}});
+  doc.render(data);
+  return doc.getZip().generate({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+}
+async function fillXlsx(buf,data){
+  const wb=new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+  wb.eachSheet(ws=>{ ws.eachRow(row=>{ row.eachCell(cell=>{
+    if(typeof cell.value==='string' && cell.value.indexOf('{{')>=0){
+      cell.value=cell.value.replace(/\{\{\s*(\w+)\s*\}\}/g,(m,k)=>(k in data)?data[k]:m);
+    }
+  }); }); });
+  return new Blob([await wb.xlsx.writeBuffer()],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function dlBlob(blob,name){ const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); }
+async function tplGenerate(){
+  if(!_tplBuf){ toast('Önce şablon dosyası seç.','err'); return; }
+  const msg=document.getElementById('tplMsg'); msg.textContent='Oluşturuluyor…';
+  try{
+    const base=(_tplData.dok_no||'dokuman').replace(/[\\/:*?"<>|]/g,'_'); let blob,outName;
+    if(_tplExt==='docx'){ blob=fillDocx(_tplBuf,_tplData); outName=base+'.docx'; }
+    else { blob=await fillXlsx(_tplBuf,_tplData); outName=base+'.xlsx'; }
+    dlBlob(blob,outName); msg.textContent='✅ İndirildi: '+outName;
+  }catch(e){ const det=(e.properties&&e.properties.errors)?e.properties.errors.map(x=>x.properties&&x.properties.explanation).join('; '):''; msg.textContent='Hata: '+e.message+(det?' ('+det+')':''); toast('Şablon hatası: '+e.message,'err'); }
+}
+function tplSaveDrive(){ toast('Google Drive henüz bağlanmadı (Client ID bekleniyor).'); }
 
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); closeCodeModal(); } });
 
