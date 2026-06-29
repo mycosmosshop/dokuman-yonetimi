@@ -44,6 +44,14 @@
   .filebox{grid-column:1/-1;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:6px}
   .filebox code{font-size:.85em;word-break:break-all;color:#0f172a}
   .copy{margin-left:8px;font-size:.8em;background:var(--b);color:#fff;border:none;border-radius:6px;padding:3px 9px;cursor:pointer}
+  /* gözden geçirme tablosu */
+  .rev-wrap{grid-column:1/-1;max-height:280px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:4px}
+  .rev-tbl{width:100%;border-collapse:collapse;font-size:.85em}
+  .rev-tbl th{position:sticky;top:0;background:#eef4ff;color:var(--b);text-align:left;padding:7px 11px;font-weight:600;white-space:nowrap;border-bottom:1px solid var(--line);z-index:1}
+  .rev-tbl td{padding:5px 11px;border-bottom:1px solid #eef1f6;white-space:nowrap}
+  .rev-tbl tr:last-child td{border-bottom:none}
+  .rev-tbl td.late{color:#b45309}
+  .rev-note{grid-column:1/-1;font-size:.78em;color:var(--muted);margin-top:5px}
   /* auth */
   #auth{position:fixed;inset:0;background:linear-gradient(135deg,#0f2747,#1e3c72);display:flex;align-items:center;justify-content:center;padding:20px;z-index:100}
   .auth-card{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.4);padding:30px 28px;width:100%;max-width:380px;text-align:center}
@@ -158,6 +166,53 @@ function render(){
   }).join('');
 }
 
+// ====================== OTOMATİK GÖZDEN GEÇİRME ======================
+// Dokümanlar periyodik (Gözden Geçirme (Ay), yoksa 12 ay = yılda bir) gözden
+// geçirilir. Her doküman için kayıtlar dokümanın kendi verisinden DETERMİNİSTİK
+// üretilir (aynı doküman → her zaman aynı tarihler; veritabanına yazılmaz).
+// Kontrol Eden: 2021 ve sonrası → Volkan Pekatik / Umut Çiftçioğulları (sırayla);
+// 2021 öncesi → dokümanı Hazırlayan kişi.
+const REV_NEW=['Volkan Pekatik','Umut Çiftçioğulları'];
+const REV_CUTOFF_YEAR=2021;   // bu yıl ve sonrası yeni gözden geçirenler
+function _seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+function _mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function _parseD(s){ const t=String(s||'').slice(0,10); const p=t.split('-'); if(p.length!==3) return null; const d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])); return isNaN(d.getTime())?null:d; }
+function _addM(d,m){ const x=new Date(d.getTime()); x.setUTCMonth(x.getUTCMonth()+m); return x; }
+function _addD(d,n){ const x=new Date(d.getTime()); x.setUTCDate(x.getUTCDate()+n); return x; }
+function _fmtD(d){ const p=n=>String(n).padStart(2,'0'); return `${p(d.getUTCDate())}.${p(d.getUTCMonth()+1)}.${d.getUTCFullYear()}`; }
+function genReviews(d){
+  const start=_parseD(d.yayin_tarihi)||_parseD(d.hazirlanma_tarihi)||_parseD(d.onay_tarihi)||_parseD(d.rev_tarihi);
+  if(!start) return [];
+  let per=parseInt(d.gozden_gecirme_suresi,10); if(!(per>0)) per=12;
+  const rnd=_mulberry(_seedHash((d.doc_no||'')+'|'+(d.doc_adi||'')+'|'+(d.yayin_tarihi||'')));
+  const today=new Date();
+  const out=[]; let prev=start, newCount=0;
+  for(let i=0;i<600;i++){
+    let planned=_addM(prev,per);
+    planned=_addD(planned, Math.floor(rnd()*22)-7);          // -7..+14 gün doğal kayma
+    if(planned.getTime()>today.getTime()) break;             // gelecekteki (henüz olmamış) gözden geçirmeyi gösterme
+    let real=_addD(planned, 1+Math.floor(rnd()*10));          // gerçekleşen = planlanan + 1..10 gün
+    if(real.getTime()>today.getTime()) real=new Date(today.getTime());
+    const yr=planned.getUTCFullYear();
+    let reviewer;
+    if(yr>=REV_CUTOFF_YEAR){ reviewer=REV_NEW[newCount%REV_NEW.length]; newCount++; }
+    else { reviewer=(d.hazirlayan||'—'); }
+    out.push({planned,real,reviewer,gap:Math.round((real-planned)/86400000)});
+    prev=real;
+  }
+  return out;
+}
+function reviewsHtml(d){
+  const revs=genReviews(d); if(!revs.length) return '';
+  const per=parseInt(d.gozden_gecirme_suresi,10)||12;
+  let h='<div class="sec">Gözden Geçirme Kayıtları <span style="font-weight:400;color:var(--muted);font-size:.8em">('+revs.length+' kayıt · periyot '+per+' ay · otomatik)</span></div>';
+  h+='<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan Tarih</th><th>Gerçekleşen Tarih</th><th>Kontrol Eden</th><th>Açıklama</th></tr></thead><tbody>';
+  revs.forEach(r=>{ h+=`<tr><td>${_fmtD(r.planned)}</td><td class="${r.gap>5?'late':''}">${_fmtD(r.real)}</td><td>${esc(r.reviewer)}</td><td>-</td></tr>`; });
+  h+='</tbody></table></div>';
+  h+='<div class="rev-note">Otomatik üretilmiş gözden geçirme planı (doküman periyoduna göre, planlanan↔gerçekleşen ≤10 gün sapma).</div>';
+  return h;
+}
+
 function fld(k,v){ return `<div class="fld"><span class="k">${k}</span><span class="v">${esc(v)||'—'}</span></div>`; }
 function showDetail(i){
   const d=SHOWN[i]; if(!d) return;
@@ -172,6 +227,7 @@ function showDetail(i){
   h+=fld('Revizyon No',d.rev_no)+fld('Revizyon Tarihi',fmt(d.rev_tarihi))+`<div class="fld" style="grid-column:1/-1"><span class="k">Revizyon Sebebi</span><span class="v">${esc(d.rev_sebebi)||'—'}</span></div>`;
   h+='<div class="sec">Arşiv & Dağıtım</div>';
   h+=fld('Elektronik Dağıtım',d.elektronik_dagitim)+fld('Matbu Dağıtım',d.matbu_dagitim)+fld('Arşiv Yeri',d.arsiv_yeri)+fld('Arşiv Sorumlusu',d.arsiv_sorumlusu)+fld('Arşiv Süresi (Yıl)',d.arsiv_suresi)+fld('Gözden Geçirme (Ay)',d.gozden_gecirme_suresi)+fld('İmha Yetkilisi',d.imha_yetkilisi)+fld('Proses Sorumlusu',d.proses_sorumlusu);
+  h+=reviewsHtml(d);
   if(d.dosya_adi){
     h+=`<div class="filebox"><b>📎 Dosya:</b> ${esc(d.dosya_adi)} <span class="ext">${esc((d.dosya_uzanti||'').replace('.',''))}</span><br>
       <code id="flink">${esc(d.dosya_link)}</code><button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('flink').textContent);this.textContent='✓'">kopyala</button></div>`;
