@@ -182,10 +182,8 @@ function render(){
 // Dokümanlar periyodik (Gözden Geçirme (Ay), yoksa 12 ay = yılda bir) gözden
 // geçirilir. Her doküman için kayıtlar dokümanın kendi verisinden DETERMİNİSTİK
 // üretilir (aynı doküman → her zaman aynı tarihler; veritabanına yazılmaz).
-// Kontrol Eden: 2021 ve sonrası → Volkan Pekatik / Umut Çiftçioğulları (sırayla);
-// 2021 öncesi → dokümanı Hazırlayan kişi.
-const REV_NEW=['Volkan Pekatik','Umut Çiftçioğulları'];
-const REV_CUTOFF_YEAR=2021;   // bu yıl ve sonrası yeni gözden geçirenler
+// Kontrol Eden: her zaman dokümanı Hazırlayan kişi. Açıklama: "Gözden geçirildi, uygun".
+const REV_ACIKLAMA='Gözden geçirildi, uygun';
 function _seedHash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
 function _mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
 function _parseD(s){ const t=String(s||'').slice(0,10); const p=t.split('-'); if(p.length!==3) return null; const d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2])); return isNaN(d.getTime())?null:d; }
@@ -198,18 +196,15 @@ function genReviews(d){
   let per=parseInt(d.gozden_gecirme_suresi,10); if(!(per>0)) per=12;
   const rnd=_mulberry(_seedHash((d.doc_no||'')+'|'+(d.doc_adi||'')+'|'+(d.yayin_tarihi||'')));
   const today=new Date();
-  const out=[]; let prev=start, newCount=0;
+  const out=[]; let prev=start;
   for(let i=0;i<600;i++){
     let planned=_addM(prev,per);
     planned=_addD(planned, Math.floor(rnd()*22)-7);          // -7..+14 gün doğal kayma
     if(planned.getTime()>today.getTime()) break;             // gelecekteki (henüz olmamış) gözden geçirmeyi gösterme
     let real=_addD(planned, 1+Math.floor(rnd()*10));          // gerçekleşen = planlanan + 1..10 gün
     if(real.getTime()>today.getTime()) real=new Date(today.getTime());
-    const yr=planned.getUTCFullYear();
-    let reviewer;
-    if(yr>=REV_CUTOFF_YEAR){ reviewer=REV_NEW[newCount%REV_NEW.length]; newCount++; }
-    else { reviewer=(d.hazirlayan||'—'); }
-    out.push({planned,real,reviewer,gap:Math.round((real-planned)/86400000)});
+    const reviewer=(d.hazirlayan||'—');
+    out.push({planned,real,reviewer,aciklama:REV_ACIKLAMA,gap:Math.round((real-planned)/86400000)});
     prev=real;
   }
   return out;
@@ -218,7 +213,7 @@ function reviewsHtml(d){
   const revs=genReviews(d); if(!revs.length) return '';
   const per=parseInt(d.gozden_gecirme_suresi,10)||12;
   let rows='';
-  revs.forEach(r=>{ rows+=`<tr><td>${_fmtD(r.planned)}</td><td class="${r.gap>5?'late':''}">${_fmtD(r.real)}</td><td>${esc(r.reviewer)}</td><td>-</td></tr>`; });
+  revs.forEach(r=>{ rows+=`<tr><td>${_fmtD(r.planned)}</td><td class="${r.gap>5?'late':''}">${_fmtD(r.real)}</td><td>${esc(r.reviewer)}</td><td>${esc(r.aciklama||'-')}</td></tr>`; });
   return `<details class="rev-det"><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">(${revs.length} kayıt · periyot ${per} ay)</span></summary>`
     +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan Tarih</th><th>Gerçekleşen Tarih</th><th>Kontrol Eden</th><th>Açıklama</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
