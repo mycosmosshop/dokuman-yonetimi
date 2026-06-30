@@ -606,8 +606,23 @@ function switchTab(t){
   const tabs={list:'tabList',tpl:'tabTemplates',managed:'tabManaged'}, btns={list:'tabBtnList',tpl:'tabBtnTpl',managed:'tabBtnManaged'};
   Object.keys(tabs).forEach(k=>{ const el=document.getElementById(tabs[k]); if(el) el.classList.toggle('hidden',k!==t); const b=document.getElementById(btns[k]); if(b) b.classList.toggle('on',k===t); });
   if(t==='tpl'){ tplRenderTags(); onTplSrc(); updateDriveStatus(); }
-  if(t==='managed'){ loadManaged(); }
+  if(t==='managed'){ loadManaged(); startManagedAuto(); } else { stopManagedAuto(); }
 }
+// Yönetilen Dokümanlar açıkken listeyi sessizce otomatik tazele → işçi üretince
+// "aç" linki sayfa yenilemeden güncel gelir (düzenleme/arama yaparken rahatsız etmez).
+let _managedAuto=null;
+function startManagedAuto(){
+  stopManagedAuto();
+  _managedAuto=setInterval(()=>{
+    const tm=document.getElementById('tabManaged');
+    if(!tm || tm.classList.contains('hidden')){ stopManagedAuto(); return; }
+    const eb=document.getElementById('mEditBg');
+    const editing = eb && eb.classList.contains('on');
+    const searching = document.activeElement && document.activeElement.id==='mAra';
+    if(!editing && !searching){ loadManaged(); }
+  }, 6000);
+}
+function stopManagedAuto(){ if(_managedAuto){ clearInterval(_managedAuto); _managedAuto=null; } }
 function tplRenderTags(){ document.getElementById('tplTagList').innerHTML=TPL_FIELDS.map(f=>`<code>{{${f[0]}}}</code>`).join(' '); }
 function onTplFile(){
   const f=document.getElementById('tplFile').files[0]; if(!f) return;
