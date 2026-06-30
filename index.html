@@ -837,7 +837,7 @@ async function managedGenerate(rec,msg){
   const b64=await blobToB64(blob);
   if(rec.drive_id){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:rec.drive_id})}); }catch(e){} }
   const resp=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name,mime,data:b64})});
-  const j=await resp.json(); if(!j.ok) throw new Error(j.error||'Drive hatası');
+  const j=await resp.json(); if(!j.ok||!j.id) throw new Error(_driveErr(j));
   rec.drive_id=j.id; rec.drive_view=j.view;
   await sb.from('managed_docs').update({drive_id:j.id,drive_view:j.view,updated_at:new Date().toISOString()}).eq('id',rec.id);
   if(msg) msg.innerHTML='✅ Drive: <a href="'+esc(j.view)+'" target="_blank" rel="noopener">'+esc(name)+'</a>';
@@ -856,9 +856,18 @@ async function managedDelete(id,fromPanel){
 const DRIVE_SECRET='Sanifoam2026Drive';
 const DRIVE_FOLDER='Kalite_Dokümanları';
 function driveUrl(){ return localStorage.getItem('dok_drive_url')||''; }
-function setDriveUrl(){
-  const u=prompt('Google Drive (Apps Script) Web App URL (.../exec):', driveUrl());
-  if(u===null) return; localStorage.setItem('dok_drive_url',u.trim()); updateDriveStatus(); toast('Drive URL kaydedildi.','ok');
+async function setDriveUrl(){
+  const u=prompt('Google Drive (Apps Script) Web App URL (.../exec)\nDİKKAT: mailer değil, DRIVE deploy\'u (apps_script_drive.gs):', driveUrl());
+  if(u===null) return; const url=u.trim();
+  if(!url){ localStorage.removeItem('dok_drive_url'); updateDriveStatus(); return; }
+  toast('Drive test ediliyor…');
+  try{
+    const r=await fetch(url+(url.includes('?')?'&':'?')+'secret='+encodeURIComponent(DRIVE_SECRET)+'&action=test');
+    const j=await r.json();
+    if(/mailer/i.test(j.service||'')){ toast('Bu MAILER URL\'i — Drive URL gir (apps_script_drive.gs).','err'); return; }
+    if((j.ok||j.success) && j.folder!==undefined){ localStorage.setItem('dok_drive_url',url); updateDriveStatus(); toast('Drive bağlandı (klasör kökü: '+j.folder+').','ok'); return; }
+    toast('Drive backend gibi yanıt vermedi (action=test). Yine de kaydedildi.','err'); localStorage.setItem('dok_drive_url',url); updateDriveStatus();
+  }catch(e){ localStorage.setItem('dok_drive_url',url); updateDriveStatus(); toast('Kaydedildi (test edilemedi — CORS olabilir).'); }
 }
 function updateDriveStatus(){
   const el=document.getElementById('tplDriveStatus'); const on=!!driveUrl();
@@ -867,6 +876,7 @@ function updateDriveStatus(){
   const b=document.getElementById('tplDriveBtn'); if(b) b.disabled=!on;
 }
 function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=rej; r.readAsDataURL(blob); }); }
+function _driveErr(j){ return /mailer/i.test((j&&j.service)||'') ? 'Bu MAILER URL — Drive URL gerekli (apps_script_drive.gs deploy\'u; mailer değil)' : ((j&&j.error)||'Drive yanıtı geçersiz'); }
 async function tplSaveDrive(){
   let url=driveUrl(); if(!url){ setDriveUrl(); url=driveUrl(); if(!url) return; }
   const msg=document.getElementById('tplMsg'); msg.textContent='Drive\'a kaydediliyor…';
@@ -874,8 +884,8 @@ async function tplSaveDrive(){
     const r0=await tplBuild(); const data=await blobToB64(r0.blob);
     const r=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name:r0.name,mime:r0.mime,data})});
     const j=await r.json();
-    if(j.ok){ msg.innerHTML='✅ Drive: <a href="'+esc(j.view||'#')+'" target="_blank" rel="noopener">'+esc(r0.name)+'</a>'; toast('Drive\'a kaydedildi.','ok'); }
-    else { msg.textContent='Drive hatası: '+(j.error||'?'); toast('Drive hatası: '+(j.error||'?'),'err'); }
+    if(j.ok&&j.id){ msg.innerHTML='✅ Drive: <a href="'+esc(j.view||'#')+'" target="_blank" rel="noopener">'+esc(r0.name)+'</a>'; toast('Drive\'a kaydedildi.','ok'); }
+    else { const em=_driveErr(j); msg.textContent='Drive: '+em; toast(em,'err'); }
   }catch(e){ msg.textContent='Hata: '+e.message; toast('Drive hatası: '+e.message,'err'); }
 }
 
