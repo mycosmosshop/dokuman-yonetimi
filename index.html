@@ -297,10 +297,8 @@ const _OFFICE={xls:'ms-excel',xlsx:'ms-excel',xlsm:'ms-excel',xlsb:'ms-excel',do
 function _encPath(unc){ return String(unc||'').replace(/^\\\\/,'').replace(/\\/g,'/').split('/').map(encodeURIComponent).join('/'); }
 function openDoc(link,ext){
   link=String(link||''); if(!link){ toast('Dosya yolu yok.','err'); return; }
-  ext=(ext||'').replace('.','').toLowerCase();
-  const p=_encPath(link), app=_OFFICE[ext];
-  if(app){ window.location.href=app+':ofv|u|file://'+p; }
-  else { window.location.href='leandoc://'+p; toast('Açılmazsa bu PC\'de bir kez "Dokuman Ac Kurulum.bat" çalıştır.'); }
+  // Tüm dosyalar leandoc: protokolüyle (Explorer çift-tık gibi açar). Her PC'de bir kez kurulum gerekir.
+  window.location.href='leandoc://'+_encPath(link);
 }
 
 async function loadDocs(){
@@ -506,7 +504,8 @@ function showDetail(i){
     h+=`<div class="filebox"><b>📎 Dosya:</b> ${esc(d.dosya_adi)} <span class="ext">${esc(_fe)}</span><br>
       <code id="flink">${esc(d.dosya_link)}</code>
       <button class="copy open" onclick="openDoc(this.dataset.link,this.dataset.ext)" data-link="${esc(d.dosya_link)}" data-ext="${esc(_fe)}">📂 Aç</button>
-      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('flink').textContent);this.textContent='✓'">⧉ kopyala</button></div>`;
+      <button class="copy" onclick="navigator.clipboard.writeText(document.getElementById('flink').textContent);this.textContent='✓'">⧉ kopyala</button>
+      <div style="margin-top:8px;font-size:.78em;color:var(--muted)">Aç çalışmıyor mu? Bu bilgisayarda bir kez çalıştır: <a href="dokuman-ac-kurulum.bat" download>⬇ dokuman-ac-kurulum.bat</a></div></div>`;
   }
   h+='</div>';
   $('#mBody').innerHTML=h;
