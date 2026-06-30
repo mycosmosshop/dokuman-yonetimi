@@ -273,7 +273,7 @@
 const SUPABASE_URL='https://nnubrxbpthmkitueixbh.supabase.co';
 const ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5udWJyeGJwdGhta2l0dWVpeGJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NjI2MDIsImV4cCI6MjA5NjEzODYwMn0.CHZUOylf_q8kkOQbFf9VWZ6-doUTlynmAhahM2EuImE';
 const sb=supabase.createClient(SUPABASE_URL,ANON);
-let DOCS=[], SHOWN=[], MAXREV={}, _revDoc=null, _revEditId=null;
+let DOCS=[], SHOWN=[], MAXREV={}, _revDoc=null, _revEditId=null, _revOpen=false;
 function isGuncel(d){ const k=d.doc_no||''; const rv=parseInt(d.rev_no,10); const r=isNaN(rv)?-1:rv; return r===MAXREV[k]; }
 
 // ====================== ADMIN KİLİDİ ======================
@@ -321,10 +321,25 @@ async function loadDocs(){
   render();
 }
 
+let _filtered=[], _shownN=0; const _PAGE=150;
+function _rowHtml(d,i){
+  const ext=(d.dosya_uzanti||'').replace('.','').toLowerCase();
+  const fileCell=d.dosya_adi?`<span class="ext ${ext}">${esc(ext||'dosya')}</span>`:'';
+  return `<tr onclick="showDetail(${i})">
+    <td>${esc(d.tip)}</td><td><b>${esc(d.doc_no)}</b></td><td>${esc(d.doc_adi)}</td>
+    <td><span class="rev">${esc(d.rev_no??'')}</span></td><td>${fmt(d.yayin_tarihi)}</td><td>${fmt(d.rev_tarihi)}</td>
+    <td>${esc(d.hazirlayan)}</td><td>${esc(d.onaylayan)}</td><td>${fileCell}</td></tr>`;
+}
+function renderMore(){
+  const next=_filtered.slice(_shownN,_shownN+_PAGE); if(!next.length) return;
+  const start=SHOWN.length; SHOWN=SHOWN.concat(next);
+  $('#tbody').insertAdjacentHTML('beforeend', next.map((d,k)=>_rowHtml(d,start+k)).join(''));
+  _shownN+=next.length;
+}
 function render(){
   const q=$('#fAra').value.trim().toLocaleLowerCase('tr');
   const tip=$('#fTip').value, sube=$('#fSube').value, onlyFile=$('#fSonfile').checked, guncel=$('#fGuncel').value;
-  let rows=DOCS.filter(d=>{
+  _filtered=DOCS.filter(d=>{
     if(guncel==='guncel' && !isGuncel(d)) return false;
     if(tip && d.tip!==tip) return false;
     if(sube && d.sube!==sube) return false;
@@ -332,18 +347,12 @@ function render(){
     if(q){ const h=[(d.doc_no||''),(d.doc_adi||''),(d.hazirlayan||''),(d.onaylayan||'')].join(' ').toLocaleLowerCase('tr'); if(!h.includes(q)) return false; }
     return true;
   });
-  $('#stat').textContent=`${rows.length} / ${DOCS.length} kayıt`;
-  if(!rows.length){ $('#tbody').innerHTML='<tr><td colspan="9" class="empty">Kayıt yok</td></tr>'; return; }
-  SHOWN=rows.slice(0,2000);
-  $('#tbody').innerHTML=SHOWN.map((d,i)=>{
-    const ext=(d.dosya_uzanti||'').replace('.','').toLowerCase();
-    const fileCell=d.dosya_adi?`<span class="ext ${ext}">${esc(ext||'dosya')}</span>`:'';
-    return `<tr onclick="showDetail(${i})">
-      <td>${esc(d.tip)}</td><td><b>${esc(d.doc_no)}</b></td><td>${esc(d.doc_adi)}</td>
-      <td><span class="rev">${esc(d.rev_no??'')}</span></td><td>${fmt(d.yayin_tarihi)}</td><td>${fmt(d.rev_tarihi)}</td>
-      <td>${esc(d.hazirlayan)}</td><td>${esc(d.onaylayan)}</td><td>${fileCell}</td></tr>`;
-  }).join('');
+  $('#stat').textContent=`${_filtered.length} / ${DOCS.length} kayıt`;
+  SHOWN=[]; _shownN=0; const tw=$('.tbl-wrap'); if(tw) tw.scrollTop=0;
+  if(!_filtered.length){ $('#tbody').innerHTML='<tr><td colspan="9" class="empty">Kayıt yok</td></tr>'; return; }
+  $('#tbody').innerHTML=''; renderMore();
 }
+(function(){ const tw=document.querySelector('.tbl-wrap'); if(tw) tw.addEventListener('scroll',()=>{ if(tw.scrollTop+tw.clientHeight>=tw.scrollHeight-240) renderMore(); }); })();
 
 // ====================== OTOMATİK GÖZDEN GEÇİRME ======================
 // Dokümanlar periyodik (Gözden Geçirme (Ay), yoksa 12 ay = yılda bir) gözden
@@ -423,7 +432,7 @@ function reviewSectionHtml(d,saved){
     +(isSaved?`<button class="rev-btn danger" data-act="delall">🗑 Tümünü sil</button>`:'')
     +`</div>`
     +`<div class="rev-add hidden" id="revAddForm"><input type="date" id="raPlanned" title="Planlanan"><input type="date" id="raReal" title="Gerçekleşen"><input id="raWho" placeholder="Kontrol Eden" value="${esc(d.hazirlayan||'')}"><input id="raAck" placeholder="Açıklama" value="${esc(REV_ACIKLAMA)}"><button class="rev-btn" data-act="addsave">Kaydet</button><button class="rev-btn" data-act="addcancel">İptal</button></div>`):'';
-  return `<details class="rev-det"><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">${badge}</span></summary>`
+  return `<details class="rev-det" ${_revOpen?'open':''}><summary>Gözden Geçirme Kayıtları <span class="rev-cnt">${badge}</span></summary>`
     +ctrls
     +`<div class="rev-wrap"><table class="rev-tbl"><thead><tr><th>Planlanan</th><th>Gerçekleşen</th><th>Kontrol Eden</th><th>Açıklama</th>${ADMIN?'<th></th>':''}</tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
@@ -433,6 +442,7 @@ async function loadReviewsInto(d){
   if(host.dataset.docno && host.dataset.docno!==(d.doc_no||'')) return; // modal değişmişse iptal
   host.innerHTML=reviewSectionHtml(d,saved);
   if(_revTableMissing) host.insertAdjacentHTML('beforeend','<div class="rev-loading">Düzenleme için <code>doc_reviews</code> tablosu gerekli (SQL çalıştırılmalı). Şimdilik otomatik önizleme gösteriliyor.</div>');
+  const _det=host.querySelector('.rev-det'); if(_det) _det.addEventListener('toggle',()=>{ _revOpen=_det.open; });
   wireReviewEvents(d,host);
 }
 function wireReviewEvents(d,host){
@@ -486,7 +496,7 @@ async function bulkDelAll(){
 function fld(k,v){ return `<div class="fld"><span class="k">${k}</span><span class="v">${esc(v)||'—'}</span></div>`; }
 function showDetail(i){
   const d=SHOWN[i]; if(!d) return;
-  _revDoc=d; _revEditId=null;
+  _revDoc=d; _revEditId=null; _revOpen=false;
   $('#mTitle').textContent=`${d.doc_no||''} — ${d.doc_adi||''}`;
   let h='<div class="grid">';
   h+='<div class="sec">Genel</div>';
