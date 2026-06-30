@@ -920,10 +920,6 @@ const DOK_AGENT='http://127.0.0.1:8799';   // yerel doküman ajanı (dokuman_syn
 async function managedGenerate(rec,msg){
   const dok=(rec.dok_no||'').trim();
   if(!dok){ if(msg)msg.textContent='Doküman No yok.'; throw new Error('dok_no yok'); }
-  if((rec.fmt||'docx')!=='docx'){
-    const m='Excel henüz desteklenmiyor (şablon hazır değil) — şimdilik sadece Word.';
-    if(msg)msg.textContent=m; toast(m,'err'); throw new Error('xlsx desteklenmiyor');
-  }
   // ERP mantığı: metadata zaten kaydedildi (managedSave). Üretimi MERKEZİ İŞÇİ yapar
   // (ağ+Word+Drive olan makinede arka planda, ~30 sn içinde). Bu makinede yerel ajan
   // (dokuman_sync_server) açıksa ANINDA üretilir; değilse merkezi işçi devralır — kullanıcı
