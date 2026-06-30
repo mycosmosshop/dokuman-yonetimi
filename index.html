@@ -940,7 +940,16 @@ async function managedGenerate(rec,msg){
   }
   await loadManaged();
 }
-async function managedGenerateById(id){ const r=MANAGED.find(x=>x.id===id); if(!r) return; const rec=Object.assign({},r); toast('Üretiliyor…'); try{ await managedGenerate(rec); toast('Güncellendi (Drive).','ok'); await loadManaged(); }catch(e){ toast('Hata: '+e.message,'err'); } }
+async function managedGenerateById(id){
+  const r=MANAGED.find(x=>x.id===id); if(!r) return;
+  toast('🔄 Yeniden üretim sıraya alındı (~birkaç sn)…');
+  // İşçinin tekrar üretmesi için zorla: drive_at=null + updated_at=now (drive_at < updated_at olur).
+  try{ await sb.from('managed_docs').update({drive_at:null,updated_at:new Date().toISOString()}).eq('id',id); }
+  catch(e){ toast('Hata: '+e.message,'err'); return; }
+  // Bu makinede yerel ajan açıksa ANINDA da üret (yoksa merkezi işçi yapar).
+  try{ await managedGenerate(Object.assign({},r)); }catch(e){}
+  await loadManaged();
+}
 async function managedDelete(id,fromPanel){
   if(!confirm('Bu yönetilen doküman kaydı silinsin mi?'))return;
   const r=MANAGED.find(x=>x.id===id)||((_mRec&&_mRec.id===id)?_mRec:null);
