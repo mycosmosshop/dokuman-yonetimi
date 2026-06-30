@@ -619,7 +619,7 @@ function startManagedAuto(){
     const eb=document.getElementById('mEditBg');
     const editing = eb && eb.classList.contains('on');
     const searching = document.activeElement && document.activeElement.id==='mAra';
-    if(!editing && !searching){ loadManaged(); }
+    if(!editing && !searching){ loadManaged(true); }
   }, 6000);
 }
 function stopManagedAuto(){ if(_managedAuto){ clearInterval(_managedAuto); _managedAuto=null; } }
@@ -840,11 +840,14 @@ let _mEmbedBuf=null, _mEmbedName='';
 function onMEmbed(){ const f=document.getElementById('mEmbed').files[0]; if(!f) return; if(!/\.docx$/i.test(f.name)){ toast('Sadece .docx gömülebilir.','err'); return; } _mEmbedName=f.name; const r=new FileReader(); r.onload=()=>{ _mEmbedBuf=r.result; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Gömülecek (içerik korunur): <b>'+esc(f.name)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'; }; r.readAsArrayBuffer(f); }
 function clearMEmbed(){ _mEmbedBuf=null; _mEmbedName=''; const fi=document.getElementById('mEmbed'); if(fi) fi.value=''; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'; }
 function managedDataObj(r){ return {dok_no:r.dok_no||'',doc_no:r.dok_no||'',doc_adi:r.doc_adi||'',tip:r.tip||'',rev_no:r.rev_no||'',rev_tarihi:r.rev_tarihi||'',rev_sebebi:r.rev_sebebi||'',yayin_tarihi:r.yayin_tarihi||'',hazirlanma_tarihi:r.hazirlanma_tarihi||'',onay_tarihi:r.onay_tarihi||'',hazirlayan:r.hazirlayan||'',onaylayan:r.onaylayan||'',sube:r.sube||'',bugun:fmt(new Date().toISOString())}; }
-async function loadManaged(){
-  const tb=document.getElementById('mtbody'); tb.innerHTML='<tr><td colspan="10" class="empty">Yükleniyor…</td></tr>';
+async function loadManaged(silent){
+  const tb=document.getElementById('mtbody');
+  if(!silent) tb.innerHTML='<tr><td colspan="10" class="empty">Yükleniyor…</td></tr>';
   const {data,error}=await sb.from('managed_docs').select('*').order('dok_no',{ascending:true});
-  if(error){ tb.innerHTML=`<tr><td colspan="10" class="empty">${/managed_docs/.test(error.message)?'managed_docs tablosu gerekli — supabase_managed_docs.sql çalıştırın.':'Hata: '+esc(error.message)}</td></tr>`; MANAGED=[]; return; }
-  MANAGED=data||[]; renderManaged();
+  if(error){ if(!silent){ tb.innerHTML=`<tr><td colspan="10" class="empty">${/managed_docs/.test(error.message)?'managed_docs tablosu gerekli — supabase_managed_docs.sql çalıştırın.':'Hata: '+esc(error.message)}</td></tr>`; MANAGED=[]; } return; }
+  const nw=data||[];
+  if(silent && JSON.stringify(nw)===JSON.stringify(MANAGED)) return;  // değişmedi → yeniden çizme (titreme yok)
+  MANAGED=nw; renderManaged();
 }
 function renderManaged(){
   const q=(document.getElementById('mAra').value||'').trim().toLocaleLowerCase('tr');
