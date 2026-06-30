@@ -182,6 +182,7 @@
   <div class="tabs">
     <button class="tab on" id="tabBtnList" onclick="switchTab('list')">📋 Doküman Listesi</button>
     <button class="tab" id="tabBtnTpl" onclick="switchTab('tpl')">🧩 Şablonlar</button>
+    <button class="tab" id="tabBtnManaged" onclick="switchTab('managed')">📚 Yönetilen Dokümanlar</button>
   </div>
   <div id="tabList">
   <div class="filters">
@@ -243,6 +244,30 @@
       </div>
     </div>
   </div><!-- /#tabTemplates -->
+
+  <div id="tabManaged" class="hidden">
+    <div class="filters">
+      <input id="mAra" placeholder="🔍 No / Ad / Hazırlayan ara…" oninput="renderManaged()">
+      <button class="tpl-btn" style="width:auto;margin:0" onclick="managedAddFromDoc()">➕ LeanSys'ten ekle</button>
+      <button class="tpl-btn" style="width:auto;margin:0" onclick="managedAddEmpty()">➕ Boş kayıt</button>
+      <span class="stat" id="mStat" style="margin-left:auto"></span>
+    </div>
+    <div class="tbl-wrap" style="max-height:calc(100vh - 230px)">
+      <table class="prod-table">
+        <thead><tr>
+          <th>Doküman No</th><th>Doküman Adı</th><th>Tip</th><th>Rev</th><th>Rev T.</th><th>Hazırlayan</th><th>Onaylayan</th><th>Format</th><th>Dosya</th><th>İşlem</th>
+        </tr></thead>
+        <tbody id="mtbody"><tr><td colspan="10" class="empty">Yükleniyor…</td></tr></tbody>
+      </table>
+    </div>
+  </div><!-- /#tabManaged -->
+
+  <div class="modal-bg" id="mEditBg" onclick="if(event.target===this)closeManagedEdit()">
+    <div class="modal">
+      <h2>📚 Yönetilen Doküman<span class="x" onclick="closeManagedEdit()">✕</span></h2>
+      <div class="body" id="mEditBody"></div>
+    </div>
+  </div>
 </div>
 </div>
 
@@ -570,12 +595,10 @@ function tplDataFromDoc(d){ return {
   sube:d.sube||'', bugun:fmt(new Date().toISOString())
 }; }
 function switchTab(t){
-  const list=t==='list';
-  document.getElementById('tabList').classList.toggle('hidden',!list);
-  document.getElementById('tabTemplates').classList.toggle('hidden',list);
-  document.getElementById('tabBtnList').classList.toggle('on',list);
-  document.getElementById('tabBtnTpl').classList.toggle('on',!list);
-  if(!list){ tplRenderTags(); onTplSrc(); updateDriveStatus(); }
+  const tabs={list:'tabList',tpl:'tabTemplates',managed:'tabManaged'}, btns={list:'tabBtnList',tpl:'tabBtnTpl',managed:'tabBtnManaged'};
+  Object.keys(tabs).forEach(k=>{ const el=document.getElementById(tabs[k]); if(el) el.classList.toggle('hidden',k!==t); const b=document.getElementById(btns[k]); if(b) b.classList.toggle('on',k===t); });
+  if(t==='tpl'){ tplRenderTags(); onTplSrc(); updateDriveStatus(); }
+  if(t==='managed'){ loadManaged(); }
 }
 function tplRenderTags(){ document.getElementById('tplTagList').innerHTML=TPL_FIELDS.map(f=>`<code>{{${f[0]}}}</code>`).join(' '); }
 function onTplFile(){
@@ -726,6 +749,106 @@ function tplFromDoc(d){
   tplRenderFields();
   toast('Şablonlar: '+(d.doc_no||'')+' alanları yüklendi — üst+alt antetli oluştur.','ok');
 }
+
+// ====================== YÖNETİLEN DOKÜMANLAR (M-Files tarzı) ======================
+const MANAGED_FIELDS=[
+  ['dok_no','Doküman No'],['doc_adi','Doküman Adı'],['tip','Tip'],
+  ['rev_no','Revizyon No'],['rev_tarihi','Revizyon Tarihi'],['rev_sebebi','Revizyon Sebebi'],
+  ['yayin_tarihi','Yayın Tarihi'],['hazirlanma_tarihi','Hazırlanma Tarihi'],['onay_tarihi','Onay Tarihi'],
+  ['hazirlayan','Hazırlayan'],['onaylayan','Onaylayan'],['sube','Şube']
+];
+let MANAGED=[], _mRec=null, _mNew=false;
+function managedDataObj(r){ return {dok_no:r.dok_no||'',doc_no:r.dok_no||'',doc_adi:r.doc_adi||'',tip:r.tip||'',rev_no:r.rev_no||'',rev_tarihi:r.rev_tarihi||'',rev_sebebi:r.rev_sebebi||'',yayin_tarihi:r.yayin_tarihi||'',hazirlanma_tarihi:r.hazirlanma_tarihi||'',onay_tarihi:r.onay_tarihi||'',hazirlayan:r.hazirlayan||'',onaylayan:r.onaylayan||'',sube:r.sube||'',bugun:fmt(new Date().toISOString())}; }
+async function loadManaged(){
+  const tb=document.getElementById('mtbody'); tb.innerHTML='<tr><td colspan="10" class="empty">Yükleniyor…</td></tr>';
+  const {data,error}=await sb.from('managed_docs').select('*').order('dok_no',{ascending:true});
+  if(error){ tb.innerHTML=`<tr><td colspan="10" class="empty">${/managed_docs/.test(error.message)?'managed_docs tablosu gerekli — supabase_managed_docs.sql çalıştırın.':'Hata: '+esc(error.message)}</td></tr>`; MANAGED=[]; return; }
+  MANAGED=data||[]; renderManaged();
+}
+function renderManaged(){
+  const q=(document.getElementById('mAra').value||'').trim().toLocaleLowerCase('tr');
+  const rows=MANAGED.filter(r=>{ if(!q) return true; return [(r.dok_no||''),(r.doc_adi||''),(r.hazirlayan||''),(r.onaylayan||'')].join(' ').toLocaleLowerCase('tr').includes(q); });
+  document.getElementById('mStat').textContent=rows.length+' kayıt';
+  const tb=document.getElementById('mtbody');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="10" class="empty">Kayıt yok — "➕ LeanSys\'ten ekle" ile başla.</td></tr>'; return; }
+  tb.innerHTML=rows.map(r=>`<tr>
+    <td><b>${esc(r.dok_no)}</b></td><td>${esc(r.doc_adi)}</td><td>${esc(r.tip)}</td><td><span class="rev">${esc(r.rev_no)}</span></td><td>${esc(r.rev_tarihi)}</td>
+    <td>${esc(r.hazirlayan)}</td><td>${esc(r.onaylayan)}</td><td>${esc((r.fmt||'docx').toUpperCase())}</td>
+    <td>${r.drive_view?`<a href="${esc(r.drive_view)}" target="_blank" rel="noopener">📄 aç</a>`:'<span style="color:#94a3b8">—</span>'}</td>
+    <td style="white-space:nowrap">
+      <button class="rev-x" title="Düzenle" style="color:#1e3c72" onclick="managedEdit(${r.id})">✎</button>
+      <button class="rev-x" title="Üret/Güncelle (Drive)" style="color:#15803d" onclick="managedGenerateById(${r.id})">⟳</button>
+      <button class="rev-x" title="Sil" onclick="managedDelete(${r.id})">✕</button>
+    </td></tr>`).join('');
+}
+function managedEdit(id){ const r=MANAGED.find(x=>x.id===id); if(r) openManagedPanel(Object.assign({},r),false,false); }
+function managedAddEmpty(){ openManagedPanel({fmt:'docx'},true,false); }
+function managedAddFromDoc(){ if(!DOCS.length){ toast('Önce Doküman Listesi yüklensin.','err'); return; } openManagedPanel({fmt:'docx'},true,true); }
+function openManagedPanel(rec,isNew,withSearch){ _mRec=rec; _mNew=isNew; renderManagedPanel(withSearch); document.getElementById('mEditBg').classList.add('on'); }
+function closeManagedEdit(){ document.getElementById('mEditBg').classList.remove('on'); _mRec=null; }
+function renderManagedPanel(withSearch){
+  const r=_mRec; let h='';
+  if(withSearch){ h+=`<div style="margin-bottom:12px"><label style="font-size:.82em;color:var(--muted)">LeanSys dokümanından doldur</label>
+    <input id="mPick" placeholder="🔍 Doküman no / ad ara…" oninput="managedDocSuggest()" autocomplete="off" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-top:4px">
+    <div id="mPickRes" class="tpl-results"></div></div>`; }
+  h+=`<div class="tpl-src" style="flex-direction:row;gap:18px;margin-bottom:12px"><label><input type="radio" name="mFmt" value="docx" ${(r.fmt||'docx')!=='xlsx'?'checked':''}> Word (.docx)</label><label><input type="radio" name="mFmt" value="xlsx" ${r.fmt==='xlsx'?'checked':''}> Excel (.xlsx)</label></div>`;
+  h+='<div class="grid">';
+  MANAGED_FIELDS.forEach(f=>{ const full=(f[0]==='doc_adi'||f[0]==='rev_sebebi'); h+=`<div class="fld" style="${full?'grid-column:1/-1':''}"><span class="k">${esc(f[1])} <code style="font-size:.85em">{{${f[0]}}}</code></span><input data-mk="${f[0]}" value="${esc(r[f[0]]||'')}" oninput="_mRec['${f[0]}']=this.value" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
+  h+='</div>';
+  h+=`<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="tpl-btn go" style="width:auto" onclick="managedSave(true)">💾 Kaydet & Üret (Drive)</button>
+    <button class="tpl-btn" style="width:auto" onclick="managedSave(false)">Kaydet</button>
+    ${!_mNew?`<button class="tpl-btn" style="width:auto;color:#b91c1c;border-color:#fecaca" onclick="managedDelete(_mRec.id,true)">🗑 Sil</button>`:''}
+    <button class="tpl-btn" style="width:auto" onclick="closeManagedEdit()">İptal</button></div>
+  <div id="mEditMsg" class="tpl-muted"></div>`;
+  document.getElementById('mEditBody').innerHTML=h;
+}
+function managedDocSuggest(){
+  const q=document.getElementById('mPick').value.trim().toLocaleLowerCase('tr'); const box=document.getElementById('mPickRes');
+  if(!q){ box.classList.remove('on'); box.innerHTML=''; return; }
+  const seen=new Set(), out=[];
+  for(const d of DOCS){ if(!d.doc_no||seen.has(d.doc_no)) continue; if(((d.doc_no||'')+' '+(d.doc_adi||'')).toLocaleLowerCase('tr').includes(q)){ seen.add(d.doc_no); out.push(d); if(out.length>=40) break; } }
+  box.innerHTML=out.length?out.map(d=>`<div onclick="managedPickDoc('${esc(d.doc_no)}')"><b>${esc(d.doc_no)}</b> — ${esc(d.doc_adi)}</div>`).join(''):'<div>Eşleşme yok</div>';
+  box.classList.add('on');
+}
+function managedPickDoc(no){
+  let pick=null; for(const d of DOCS){ if(d.doc_no===no && isGuncel(d)){ pick=d; break; } } if(!pick) for(const d of DOCS){ if(d.doc_no===no){ pick=d; break; } } if(!pick) return;
+  const td=tplDataFromDoc(pick);
+  MANAGED_FIELDS.forEach(f=>{ _mRec[f[0]]=td[f[0]]||''; });
+  renderManagedPanel(false);
+}
+function managedPayload(r){ const o={fmt:r.fmt||'docx',updated_at:new Date().toISOString()}; MANAGED_FIELDS.forEach(f=>o[f[0]]=r[f[0]]||null); if(r.drive_id!=null)o.drive_id=r.drive_id; if(r.drive_view!=null)o.drive_view=r.drive_view; return o; }
+async function managedSave(gen){
+  const msg=document.getElementById('mEditMsg'); _mRec.fmt=(document.querySelector('input[name=mFmt]:checked')||{}).value||'docx';
+  try{
+    if(_mNew){ const {data,error}=await sb.from('managed_docs').insert(managedPayload(_mRec)).select().single(); if(error) throw error; _mRec.id=data.id; _mNew=false; }
+    else { const {error}=await sb.from('managed_docs').update(managedPayload(_mRec)).eq('id',_mRec.id); if(error) throw error; }
+    if(gen){ msg.textContent='Drive\'a üretiliyor…'; await managedGenerate(_mRec,msg); }
+    toast('Kaydedildi.','ok'); await loadManaged(); if(!gen) closeManagedEdit();
+  }catch(e){ msg.textContent='Hata: '+e.message; toast('Hata: '+e.message,'err'); }
+}
+async function managedGenerate(rec,msg){
+  let url=driveUrl(); if(!url){ setDriveUrl(); url=driveUrl(); if(!url){ if(msg)msg.textContent='Drive URL gerekli (Şablonlar → Drive bağla).'; throw new Error('Drive URL yok'); } }
+  const data=managedDataObj(rec); const base=(rec.dok_no||'dokuman').replace(/[\\/:*?"<>|]/g,'_'); let blob,name,mime;
+  if((rec.fmt||'docx')==='docx'){ blob=buildAntetDocx(data); name=base+'.docx'; mime=MIME_DOCX; } else { blob=await buildAntetXlsx(data); name=base+'.xlsx'; mime=MIME_XLSX; }
+  const b64=await blobToB64(blob);
+  if(rec.drive_id){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:rec.drive_id})}); }catch(e){} }
+  const resp=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name,mime,data:b64})});
+  const j=await resp.json(); if(!j.ok) throw new Error(j.error||'Drive hatası');
+  rec.drive_id=j.id; rec.drive_view=j.view;
+  await sb.from('managed_docs').update({drive_id:j.id,drive_view:j.view,updated_at:new Date().toISOString()}).eq('id',rec.id);
+  if(msg) msg.innerHTML='✅ Drive: <a href="'+esc(j.view)+'" target="_blank" rel="noopener">'+esc(name)+'</a>';
+}
+async function managedGenerateById(id){ const r=MANAGED.find(x=>x.id===id); if(!r) return; const rec=Object.assign({},r); toast('Üretiliyor…'); try{ await managedGenerate(rec); toast('Güncellendi (Drive).','ok'); await loadManaged(); }catch(e){ toast('Hata: '+e.message,'err'); } }
+async function managedDelete(id,fromPanel){
+  if(!confirm('Bu yönetilen doküman kaydı silinsin mi?'))return;
+  const r=MANAGED.find(x=>x.id===id)||((_mRec&&_mRec.id===id)?_mRec:null);
+  try{
+    if(r&&r.drive_id){ const url=driveUrl(); if(url){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:r.drive_id})}); }catch(e){} } }
+    const {error}=await sb.from('managed_docs').delete().eq('id',id); if(error) throw error;
+    toast('Silindi.','ok'); if(fromPanel) closeManagedEdit(); await loadManaged();
+  }catch(e){ toast('Silme hatası: '+e.message,'err'); }
+}
 // --- Drive (VDA ile aynı Apps Script backend; klasör: Kalite_Dokümanları) ---
 const DRIVE_SECRET='Sanifoam2026Drive';
 const DRIVE_FOLDER='Kalite_Dokümanları';
@@ -753,7 +876,7 @@ async function tplSaveDrive(){
   }catch(e){ msg.textContent='Hata: '+e.message; toast('Drive hatası: '+e.message,'err'); }
 }
 
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); closeCodeModal(); } });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal(); closeCodeModal(); closeManagedEdit(); } });
 
 // toplu gözden geçirme menüsü
 $('#bulkMenuBtn').onclick=e=>{ e.stopPropagation(); $('#bulkMenu').classList.toggle('on'); };
