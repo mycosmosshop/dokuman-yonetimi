@@ -898,17 +898,32 @@ async function managedSave(gen){
     toast('Kaydedildi.','ok'); await loadManaged(); if(!gen) closeManagedEdit();
   }catch(e){ msg.textContent='Hata: '+e.message; toast('Hata: '+e.message,'err'); }
 }
+const DOK_AGENT='http://127.0.0.1:8799';   // yerel doküman ajanı (dokuman_sync_server.py)
 async function managedGenerate(rec,msg){
-  let url=driveUrl(); if(!url){ setDriveUrl(); url=driveUrl(); if(!url){ if(msg)msg.textContent='Drive URL gerekli (Şablonlar → Drive bağla).'; throw new Error('Drive URL yok'); } }
-  const data=managedDataObj(rec); const base=(rec.dok_no||'dokuman').replace(/[\\/:*?"<>|]/g,'_'); let blob,name,mime;
-  if((rec.fmt||'docx')==='docx'){ blob = _mEmbedBuf ? await injectHeaderIntoDocx(_mEmbedBuf,data) : await buildAntetDocx(data); name=base+'.docx'; mime=MIME_DOCX; } else { blob=await buildAntetXlsx(data); name=base+'.xlsx'; mime=MIME_XLSX; }
-  const b64=await blobToB64(blob);
-  if(rec.drive_id){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:rec.drive_id})}); }catch(e){} }
-  const resp=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name,mime,data:b64})});
-  const j=await resp.json(); if(!j.ok||!j.id) throw new Error(_driveErr(j));
-  rec.drive_id=j.id; rec.drive_view=j.view;
-  await sb.from('managed_docs').update({drive_id:j.id,drive_view:j.view,updated_at:new Date().toISOString()}).eq('id',rec.id);
-  if(msg) msg.innerHTML='✅ Drive: <a href="'+esc(j.view)+'" target="_blank" rel="noopener">'+esc(name)+'</a>';
+  const dok=(rec.dok_no||'').trim();
+  if(!dok){ if(msg)msg.textContent='Doküman No yok.'; throw new Error('dok_no yok'); }
+  if((rec.fmt||'docx')!=='docx'){
+    const m='Excel henüz desteklenmiyor (şablon hazır değil) — şimdilik sadece Word.';
+    if(msg)msg.textContent=m; toast(m,'err'); throw new Error('xlsx desteklenmiyor');
+  }
+  // YEREL AJAN: dokümanı içerik + GÜNCEL antet (metadata'dan) ile yeniden üretip Drive'a yazar.
+  // (Tarayıcı↔Apps Script sorununu atlar; içeriği ağdan okuyup gömer.)
+  if(msg) msg.textContent='⏳ Yerel ajan üretiyor (içerik + antet → Drive)…';
+  let j;
+  try{
+    const r=await fetch(DOK_AGENT+'/regen?dok='+encodeURIComponent(dok));
+    j=await r.json();
+  }catch(e){
+    const m='⚠ Yerel ajan kapalı. "Doküman Sunucusu" (dokuman_sync_server) çalışıyor olmalı — başlat, tekrar dene.';
+    if(msg)msg.textContent=m; toast(m,'err'); throw new Error('ajan kapalı');
+  }
+  if(!j.ok){
+    const tail=(j.log||'').split('\n').filter(s=>s.trim()).slice(-2).join(' ');
+    const m='Üretilemedi: '+(j.error||tail||'bilinmeyen hata');
+    if(msg)msg.textContent=m; toast(m,'err'); throw new Error('uretim');
+  }
+  if(msg) msg.innerHTML='✅ Üretildi (içerik + antet) → Drive'+(j.view?' · <a href="'+esc(j.view)+'" target="_blank" rel="noopener">aç</a>':'');
+  await loadManaged();
 }
 async function managedGenerateById(id){ const r=MANAGED.find(x=>x.id===id); if(!r) return; const rec=Object.assign({},r); toast('Üretiliyor…'); try{ await managedGenerate(rec); toast('Güncellendi (Drive).','ok'); await loadManaged(); }catch(e){ toast('Hata: '+e.message,'err'); } }
 async function managedDelete(id,fromPanel){
