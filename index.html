@@ -821,6 +821,9 @@ const MANAGED_FIELDS=[
   ['hazirlayan','Hazırlayan'],['onaylayan','Onaylayan'],['sube','Şube']
 ];
 let MANAGED=[], _mRec=null, _mNew=false;
+let _mEmbedBuf=null, _mEmbedName='';
+function onMEmbed(){ const f=document.getElementById('mEmbed').files[0]; if(!f) return; if(!/\.docx$/i.test(f.name)){ toast('Sadece .docx gömülebilir.','err'); return; } _mEmbedName=f.name; const r=new FileReader(); r.onload=()=>{ _mEmbedBuf=r.result; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Gömülecek (içerik korunur): <b>'+esc(f.name)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'; }; r.readAsArrayBuffer(f); }
+function clearMEmbed(){ _mEmbedBuf=null; _mEmbedName=''; const fi=document.getElementById('mEmbed'); if(fi) fi.value=''; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'; }
 function managedDataObj(r){ return {dok_no:r.dok_no||'',doc_no:r.dok_no||'',doc_adi:r.doc_adi||'',tip:r.tip||'',rev_no:r.rev_no||'',rev_tarihi:r.rev_tarihi||'',rev_sebebi:r.rev_sebebi||'',yayin_tarihi:r.yayin_tarihi||'',hazirlanma_tarihi:r.hazirlanma_tarihi||'',onay_tarihi:r.onay_tarihi||'',hazirlayan:r.hazirlayan||'',onaylayan:r.onaylayan||'',sube:r.sube||'',bugun:fmt(new Date().toISOString())}; }
 async function loadManaged(){
   const tb=document.getElementById('mtbody'); tb.innerHTML='<tr><td colspan="10" class="empty">Yükleniyor…</td></tr>';
@@ -847,14 +850,19 @@ function renderManaged(){
 function managedEdit(id){ const r=MANAGED.find(x=>x.id===id); if(r) openManagedPanel(Object.assign({},r),false,false); }
 function managedAddEmpty(){ openManagedPanel({fmt:'docx'},true,false); }
 function managedAddFromDoc(){ if(!DOCS.length){ toast('Önce Doküman Listesi yüklensin.','err'); return; } openManagedPanel({fmt:'docx'},true,true); }
-function openManagedPanel(rec,isNew,withSearch){ _mRec=rec; _mNew=isNew; renderManagedPanel(withSearch); document.getElementById('mEditBg').classList.add('on'); }
-function closeManagedEdit(){ document.getElementById('mEditBg').classList.remove('on'); _mRec=null; }
+function openManagedPanel(rec,isNew,withSearch){ _mRec=rec; _mNew=isNew; _mEmbedBuf=null; _mEmbedName=''; renderManagedPanel(withSearch); document.getElementById('mEditBg').classList.add('on'); }
+function closeManagedEdit(){ document.getElementById('mEditBg').classList.remove('on'); _mRec=null; _mEmbedBuf=null; _mEmbedName=''; }
 function renderManagedPanel(withSearch){
   const r=_mRec; let h='';
   if(withSearch){ h+=`<div style="margin-bottom:12px"><label style="font-size:.82em;color:var(--muted)">LeanSys dokümanından doldur</label>
     <input id="mPick" placeholder="🔍 Doküman no / ad ara…" oninput="managedDocSuggest()" autocomplete="off" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-top:4px">
     <div id="mPickRes" class="tpl-results"></div></div>`; }
   h+=`<div class="tpl-src" style="flex-direction:row;gap:18px;margin-bottom:12px"><label><input type="radio" name="mFmt" value="docx" ${(r.fmt||'docx')!=='xlsx'?'checked':''}> Word (.docx)</label><label><input type="radio" name="mFmt" value="xlsx" ${r.fmt==='xlsx'?'checked':''}> Excel (.xlsx)</label></div>`;
+  h+=`<div style="margin:0 0 12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+    <div style="font-size:.84em;color:#1e40af;font-weight:600;margin-bottom:5px">📎 Orijinal dokümanı yükle (içerik antet içine gömülür)</div>
+    <input type="file" id="mEmbed" accept=".docx" onchange="onMEmbed()" style="font-size:.85em;width:100%">
+    <div id="mEmbedInfo" style="font-size:.82em;color:var(--muted);margin-top:5px">${_mEmbedName?('Gömülecek: <b>'+esc(_mEmbedName)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'):'Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'}</div>
+  </div>`;
   h+='<div class="grid">';
   MANAGED_FIELDS.forEach(f=>{ const full=(f[0]==='doc_adi'||f[0]==='rev_sebebi'); h+=`<div class="fld" style="${full?'grid-column:1/-1':''}"><span class="k">${esc(f[1])} <code style="font-size:.85em">{{${f[0]}}}</code></span><input data-mk="${f[0]}" value="${esc(r[f[0]]||'')}" oninput="_mRec['${f[0]}']=this.value" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
   h+='</div>';
@@ -893,7 +901,7 @@ async function managedSave(gen){
 async function managedGenerate(rec,msg){
   let url=driveUrl(); if(!url){ setDriveUrl(); url=driveUrl(); if(!url){ if(msg)msg.textContent='Drive URL gerekli (Şablonlar → Drive bağla).'; throw new Error('Drive URL yok'); } }
   const data=managedDataObj(rec); const base=(rec.dok_no||'dokuman').replace(/[\\/:*?"<>|]/g,'_'); let blob,name,mime;
-  if((rec.fmt||'docx')==='docx'){ blob=await buildAntetDocx(data); name=base+'.docx'; mime=MIME_DOCX; } else { blob=await buildAntetXlsx(data); name=base+'.xlsx'; mime=MIME_XLSX; }
+  if((rec.fmt||'docx')==='docx'){ blob = _mEmbedBuf ? await injectHeaderIntoDocx(_mEmbedBuf,data) : await buildAntetDocx(data); name=base+'.docx'; mime=MIME_DOCX; } else { blob=await buildAntetXlsx(data); name=base+'.xlsx'; mime=MIME_XLSX; }
   const b64=await blobToB64(blob);
   if(rec.drive_id){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:rec.drive_id})}); }catch(e){} }
   const resp=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name,mime,data:b64})});
