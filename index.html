@@ -663,38 +663,43 @@ const MIME_XLSX='application/vnd.openxmlformats-officedocument.spreadsheetml.she
 function _xe(s){ return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
 function _wp(t,o){ o=o||{}; const rpr=`${o.bold?'<w:b/>':''}${o.color?`<w:color w:val="${o.color}"/>`:''}${o.sz?`<w:sz w:val="${o.sz}"/>`:''}`; const ppr=`${o.jc?`<w:jc w:val="${o.jc}"/>`:''}${rpr?`<w:rPr>${rpr}</w:rPr>`:''}`;
   return `<w:p>${ppr?`<w:pPr>${ppr}</w:pPr>`:''}<w:r>${rpr?`<w:rPr>${rpr}</w:rPr>`:''}<w:t xml:space="preserve">${_xe(t)}</w:t></w:r></w:p>`; }
-function _tc(t,o){ o=o||{}; const span=o.span?`<w:gridSpan w:val="${o.span}"/>`:''; const shd=o.shd?`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`:'';
-  return `<w:tc><w:tcPr><w:tcW w:w="${o.w||2400}" w:type="dxa"/>${span}${shd}<w:vAlign w:val="center"/></w:tcPr>${_wp(t,o)}</w:tc>`; }
-function buildAntetDocx(d){
-  const L=t=>_tc(t,{w:2400,bold:true,shd:'E8EEF7'}), V=(t,w)=>_tc(t,{w:w||2400});
+function _tc(t,o){ o=o||{}; const span=o.span?`<w:gridSpan w:val="${o.span}"/>`:''; const vm=o.vm?`<w:vMerge w:val="${o.vm}"/>`:''; const shd=o.shd?`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`:'';
+  const content=(o.raw!=null)?o.raw:_wp(t,o);
+  return `<w:tc><w:tcPr><w:tcW w:w="${o.w||2400}" w:type="dxa"/>${span}${vm}${shd}<w:vAlign w:val="center"/></w:tcPr>${content}</w:tc>`; }
+let _logoB64=null;
+async function getLogo(){ if(_logoB64!=null) return _logoB64; try{ const r=await fetch('sanifoam-logo.png'); const b=await r.blob(); _logoB64=await blobToB64(b); }catch(e){ _logoB64=''; } return _logoB64; }
+async function buildAntetDocx(d){
+  const logo=await getLogo();
+  const W={a:2200,b:3700,c:2000,d:1700};
+  const lbl=t=>_tc(t,{w:W.c,bold:true,shd:'F2F4F8',sz:'17'});
+  const val=t=>_tc(t,{w:W.d,sz:'18'});
+  const logoP=logo
+    ? `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1219200" cy="293000"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="1" name="Logo"/><wp:cNvGraphicFramePr/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="1" name="Logo"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdLogo"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1219200" cy="293000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`
+    : _wp('SANİFOAM',{bold:true,jc:'center',sz:'28',color:'1F4E79'});
+  const pageP=`<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple><w:r><w:t xml:space="preserve"> / </w:t></w:r><w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>`;
+  const e=_wp('');
   const rows=[
-    `<w:tr>${_tc((d.tip||'DOKÜMAN'),{w:9600,span:4,bold:true,jc:'center',shd:'1E3C72',color:'FFFFFF',sz:'26'})}</w:tr>`,
-    `<w:tr>${L('Doküman No')+V(d.dok_no)+L('Revizyon No')+V(d.rev_no)}</w:tr>`,
-    `<w:tr>${L('Doküman Adı')+_tc(d.doc_adi,{w:7200,span:3})}</w:tr>`,
-    `<w:tr>${L('Yayın Tarihi')+V(d.yayin_tarihi)+L('Revizyon Tarihi')+V(d.rev_tarihi)}</w:tr>`,
-    `<w:tr>${L('Hazırlama Tarihi')+V(d.hazirlanma_tarihi)+L('Onay Tarihi')+V(d.onay_tarihi)}</w:tr>`,
-    `<w:tr>${L('Hazırlayan')+V(d.hazirlayan)+L('Onaylayan')+V(d.onaylayan)}</w:tr>`,
-    `<w:tr>${L('Revizyon Sebebi')+_tc(d.rev_sebebi,{w:7200,span:3})}</w:tr>`
+    `<w:tr>${_tc('',{w:W.a,vm:'restart',raw:logoP})}${_tc('Kalite Yönetim Sistem Dokümantasyonu',{w:W.b,vm:'restart',bold:true,jc:'center'})}${lbl('DOKÜMAN NO')}${val(d.dok_no)}</w:tr>`,
+    `<w:tr>${_tc('',{w:W.a,vm:'continue',raw:e})}${_tc('',{w:W.b,vm:'continue',raw:e})}${lbl('YÜRÜRLÜK TARİHİ')}${val(d.yayin_tarihi)}</w:tr>`,
+    `<w:tr>${_tc('',{w:W.a,vm:'continue',raw:e})}${_tc((d.doc_adi||''),{w:W.b,vm:'restart',bold:true,jc:'center'})}${lbl('REVİZYON NO / TARİHİ')}${val((d.rev_no||'')+(d.rev_tarihi?(' / '+d.rev_tarihi):''))}</w:tr>`,
+    `<w:tr>${_tc('',{w:W.a,vm:'continue',raw:e})}${_tc('',{w:W.b,vm:'continue',raw:e})}${lbl('SAYFA NO')}${_tc('',{w:W.d,raw:pageP})}</w:tr>`
   ].join('');
-  const bord=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="6" w:space="0" w:color="9CB0CC"/>`).join('');
-  const tbl=`<w:tbl><w:tblPr><w:tblW w:w="9600" w:type="dxa"/><w:tblBorders>${bord}</w:tblBorders></w:tblPr><w:tblGrid>${'<w:gridCol w:w="2400"/>'.repeat(4)}</w:tblGrid>${rows}</w:tbl>`;
-  // ALT ANTET (footer — her sayfa altında)
-  const Lf=t=>_tc(t,{w:2400,bold:true,sz:'16',shd:'F1F5FB'}), Vf=t=>_tc(t,{w:2400,sz:'16'});
-  const fRows=[
-    `<w:tr>${Lf('Doküman No')+Vf(d.dok_no)+Lf('Revizyon No')+Vf(d.rev_no)}</w:tr>`,
-    `<w:tr>${Lf('Hazırlayan')+Vf(d.hazirlayan)+Lf('Onaylayan')+Vf(d.onaylayan)}</w:tr>`
-  ].join('');
-  const ftbl=`<w:tbl><w:tblPr><w:tblW w:w="9600" w:type="dxa"/><w:tblBorders>${bord}</w:tblBorders></w:tblPr><w:tblGrid>${'<w:gridCol w:w="2400"/>'.repeat(4)}</w:tblGrid>${fRows}</w:tbl>`;
-  const ftrXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${ftbl}</w:ftr>`;
-  const body=`${tbl}${_wp('')}${_wp('Amaç / Kapsam:',{bold:true})}${_wp('')}${_wp('')}${_wp('')}`;
-  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body}<w:sectPr><w:footerReference w:type="default" r:id="rIdF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1418" w:left="1134"/></w:sectPr></w:body></w:document>`;
+  const bord=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="6" w:space="0" w:color="808080"/>`).join('');
+  const tbl=`<w:tbl><w:tblPr><w:tblW w:w="9600" w:type="dxa"/><w:tblBorders>${bord}</w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="${W.a}"/><w:gridCol w:w="${W.b}"/><w:gridCol w:w="${W.c}"/><w:gridCol w:w="${W.d}"/></w:tblGrid>${rows}</w:tbl>`;
+  const hdrXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">${tbl}</w:hdr>`;
+  const body=`${_wp('Amaç / Kapsam:',{bold:true})}${_wp('')}${_wp('')}`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body}<w:sectPr><w:headerReference w:type="default" r:id="rIdH1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="2552" w:right="1134" w:bottom="1134" w:left="1134" w:header="397" w:footer="567"/></w:sectPr></w:body></w:document>`;
   const z=new PizZip();
-  z.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>');
+  z.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>');
   z.folder('_rels').file('.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
   const wf=z.folder('word');
   wf.file('document.xml',docXml);
-  wf.file('footer1.xml',ftrXml);
-  wf.folder('_rels').file('document.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>');
+  wf.file('header1.xml',hdrXml);
+  wf.folder('_rels').file('document.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/></Relationships>');
+  if(logo){
+    wf.folder('_rels').file('header1.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdLogo" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>');
+    wf.folder('media').file('image1.png',logo,{base64:true});
+  }
   return z.generate({type:'blob',mimeType:MIME_DOCX});
 }
 async function buildAntetXlsx(d){
@@ -728,13 +733,13 @@ async function tplBuild(){
     if(_tplExt==='docx') return {blob:fillDocx(_tplBuf,_tplData),name:base+'.docx',mime:MIME_DOCX};
     return {blob:await fillXlsx(_tplBuf,_tplData),name:base+'.xlsx',mime:MIME_XLSX};
   }
-  if(tplFmt()==='docx') return {blob:buildAntetDocx(_tplData),name:base+'.docx',mime:MIME_DOCX};
+  if(tplFmt()==='docx') return {blob:await buildAntetDocx(_tplData),name:base+'.docx',mime:MIME_DOCX};
   return {blob:await buildAntetXlsx(_tplData),name:base+'.xlsx',mime:MIME_XLSX};
 }
 function tplPlaceholderData(){ const o={}; TPL_FIELDS.forEach(f=>o[f[0]]='{{'+f[0]+'}}'); return o; }
 async function tplSampleDownload(){
   const pd=tplPlaceholderData();
-  if(tplFmt()==='docx') dlBlob(buildAntetDocx(pd),'ornek_sablon.docx');
+  if(tplFmt()==='docx') dlBlob(await buildAntetDocx(pd),'ornek_sablon.docx');
   else dlBlob(await buildAntetXlsx(pd),'ornek_sablon.xlsx');
   toast('Örnek şablon indirildi (içinde {{etiketler}}).','ok');
 }
@@ -833,7 +838,7 @@ async function managedSave(gen){
 async function managedGenerate(rec,msg){
   let url=driveUrl(); if(!url){ setDriveUrl(); url=driveUrl(); if(!url){ if(msg)msg.textContent='Drive URL gerekli (Şablonlar → Drive bağla).'; throw new Error('Drive URL yok'); } }
   const data=managedDataObj(rec); const base=(rec.dok_no||'dokuman').replace(/[\\/:*?"<>|]/g,'_'); let blob,name,mime;
-  if((rec.fmt||'docx')==='docx'){ blob=buildAntetDocx(data); name=base+'.docx'; mime=MIME_DOCX; } else { blob=await buildAntetXlsx(data); name=base+'.xlsx'; mime=MIME_XLSX; }
+  if((rec.fmt||'docx')==='docx'){ blob=await buildAntetDocx(data); name=base+'.docx'; mime=MIME_DOCX; } else { blob=await buildAntetXlsx(data); name=base+'.xlsx'; mime=MIME_XLSX; }
   const b64=await blobToB64(blob);
   if(rec.drive_id){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:rec.drive_id})}); }catch(e){} }
   const resp=await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'upload',folder:DRIVE_FOLDER,name,mime,data:b64})});
