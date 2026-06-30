@@ -906,23 +906,24 @@ async function managedGenerate(rec,msg){
     const m='Excel henüz desteklenmiyor (şablon hazır değil) — şimdilik sadece Word.';
     if(msg)msg.textContent=m; toast(m,'err'); throw new Error('xlsx desteklenmiyor');
   }
-  // YEREL AJAN: dokümanı içerik + GÜNCEL antet (metadata'dan) ile yeniden üretip Drive'a yazar.
-  // (Tarayıcı↔Apps Script sorununu atlar; içeriği ağdan okuyup gömer.)
-  if(msg) msg.textContent='⏳ Yerel ajan üretiyor (içerik + antet → Drive)…';
-  let j;
+  // ERP mantığı: metadata zaten kaydedildi (managedSave). Üretimi MERKEZİ İŞÇİ yapar
+  // (ağ+Word+Drive olan makinede arka planda, ~30 sn içinde). Bu makinede yerel ajan
+  // (dokuman_sync_server) açıksa ANINDA üretilir; değilse merkezi işçi devralır — kullanıcı
+  // hiçbir şey çalıştırmaz, "Kaydet & Üret" tek tık yeter.
+  if(msg) msg.textContent='⏳ Üretiliyor…';
   try{
     const r=await fetch(DOK_AGENT+'/regen?dok='+encodeURIComponent(dok));
-    j=await r.json();
-  }catch(e){
-    const m='⚠ Yerel ajan kapalı. "Doküman Sunucusu" (dokuman_sync_server) çalışıyor olmalı — başlat, tekrar dene.';
-    if(msg)msg.textContent=m; toast(m,'err'); throw new Error('ajan kapalı');
-  }
-  if(!j.ok){
+    const j=await r.json();
+    if(j.ok){
+      if(msg) msg.innerHTML='✅ Üretildi (içerik + antet) → Drive'+(j.view?' · <a href="'+esc(j.view)+'" target="_blank" rel="noopener">aç</a>':'');
+      await loadManaged(); return;
+    }
     const tail=(j.log||'').split('\n').filter(s=>s.trim()).slice(-2).join(' ');
-    const m='Üretilemedi: '+(j.error||tail||'bilinmeyen hata');
-    if(msg)msg.textContent=m; toast(m,'err'); throw new Error('uretim');
+    if(msg) msg.textContent='⚠ '+(j.error||tail||'üretilemedi')+' — merkezi işçi tekrar deneyecek.';
+  }catch(e){
+    // Bu makinede ajan yok → MERKEZİ İŞÇİ ~30 sn içinde üretecek (çok-kullanıcı / ERP).
+    if(msg) msg.innerHTML='✅ Kaydedildi. Üretim sıraya alındı — <b>~30 sn</b> içinde Drive\'da güncellenir.';
   }
-  if(msg) msg.innerHTML='✅ Üretildi (içerik + antet) → Drive'+(j.view?' · <a href="'+esc(j.view)+'" target="_blank" rel="noopener">aç</a>':'');
   await loadManaged();
 }
 async function managedGenerateById(id){ const r=MANAGED.find(x=>x.id===id); if(!r) return; const rec=Object.assign({},r); toast('Üretiliyor…'); try{ await managedGenerate(rec); toast('Güncellendi (Drive).','ok'); await loadManaged(); }catch(e){ toast('Hata: '+e.message,'err'); } }
