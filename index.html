@@ -931,6 +931,8 @@ function managedPickDoc(no){
   let pick=null; for(const d of DOCS){ if(d.doc_no===no && isGuncel(d)){ pick=d; break; } } if(!pick) for(const d of DOCS){ if(d.doc_no===no){ pick=d; break; } } if(!pick) return;
   const td=tplDataFromDoc(pick);
   MANAGED_FIELDS.forEach(f=>{ _mRec[f[0]]=td[f[0]]||''; });
+  // Format kaynağın uzantısından otomatik (FR176: .xls iken Word seçili kalıyordu → 'kaynak bulunamadı')
+  _mRec.fmt=/xls/i.test(pick.dosya_uzanti||'')?'xlsx':'docx';
   renderManagedPanel(false);
 }
 function managedPayload(r){ const o={fmt:r.fmt||'docx',updated_at:new Date().toISOString()}; MANAGED_FIELDS.forEach(f=>o[f[0]]=r[f[0]]||null); if(r.drive_id!=null)o.drive_id=r.drive_id; if(r.drive_view!=null)o.drive_view=r.drive_view; return o; }
