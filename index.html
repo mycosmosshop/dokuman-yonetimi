@@ -903,6 +903,11 @@ function _cellText(v){
   if(typeof v==='object'){ if(v.richText) return v.richText.map(t=>t.text).join(''); if(v.result!=null) return String(v.result); if(v.text) return String(v.text); if(v instanceof Date) return v.toLocaleDateString('tr-TR'); return ''; }
   return String(v);
 }
+const _PICK_KW=/(KAL[İI]TE Y[ÖO]NET|DOK ?\.? ?NO|DOK[ÜU]MAN NO|REV ?\.? ?NO|REV[İI]ZYON|Y ?\.? ?TRH|Y[ÜU]R[ÜU]RL|SAYFA|SYF|DOK[ÜU]MANTASYON)/i;
+function _argb(f){ // ExcelJS solid dolgu → css renk (tema/beyaz/şeffafı atla)
+  try{ if(f&&f.type==='pattern'&&f.pattern==='solid'&&f.fgColor&&f.fgColor.argb){ const a=f.fgColor.argb; if(!/^(00|FF)?(FFFFFF|000000)$/i.test(a.slice(-6))||/^(FF)?(00FF00|92D050)/i.test(a.slice(-6))) return '#'+a.slice(-6); } }catch(_){}
+  return '';
+}
 async function renderCellPicker(buf){
   let ws;
   try{ const wb=new ExcelJS.Workbook(); await wb.xlsx.load(buf); ws=wb.worksheets[0]; if(!ws) throw new Error('sayfa yok'); }
@@ -913,32 +918,47 @@ async function renderCellPicker(buf){
     const c1=_colN(mm[1]),r1=+mm[2],c2=_colN(mm[3]),r2=+mm[4];
     merged[r1+'_'+c1]={rs:r2-r1+1,cs:c2-c1+1};
     for(let rr=r1;rr<=r2;rr++)for(let cc=c1;cc<=c2;cc++){ if(rr!==r1||cc!==c1) skip[rr+'_'+cc]=1; } });
+  // kaynak antet bölgesi (ilk ~8 satırda DOK/REV/SAYFA... etiketli satırlar) → üretimde DEĞİŞİR, seçilmesin
+  const antetRows=new Set();
+  for(let r=1;r<=Math.min(8,maxR);r++){
+    let t=''; for(let c=1;c<=maxC;c++){ t+=' '+_cellText(ws.getRow(r).getCell(c).value); }
+    if(_PICK_KW.test(t)) antetRows.add(r);
+  }
   let bg=document.getElementById('cellPickBg');
   if(!bg){ bg=document.createElement('div'); bg.id='cellPickBg';
     bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
     document.body.appendChild(bg); }
   let h=`<div style="background:#fff;border-radius:12px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
-    <div style="background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center;gap:10px">
+    <div style="background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       📍 Konum seç — <code style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:6px">{{${esc(_pickKey)}}}</code>
-      <span style="font-weight:400;font-size:.85em;opacity:.9">değerin basılacağı hücreye tıkla</span>
+      <span style="font-weight:400;font-size:.85em;opacity:.9">değerin basılacağı BOŞ kutuya tıkla · <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px">sarı üst bölge</span> üretimde Sanifoam antetiyle değişir, oraya seçme</span>
       <span style="flex:1"></span><button onclick="document.getElementById('cellPickBg').remove()" style="background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer">✕</button></div>
     <div style="overflow:auto;padding:10px"><table style="border-collapse:collapse;font-size:11px;font-family:Calibri,Arial">`;
   h+='<tr><td style="background:#f1f5f9"></td>';
   for(let c=1;c<=maxC;c++) h+=`<td style="background:#f1f5f9;color:#64748b;text-align:center;padding:2px 6px;border:1px solid #e2e8f0;font-weight:600">${_colL(c)}</td>`;
   h+='</tr>';
+  const bs=s=>s&&s.style?'1.6px solid #334155':'1px solid #f1f5f9';   // gerçek form çizgisi vs silik ızgara
   for(let r=1;r<=maxR;r++){
     h+=`<tr><td style="background:#f1f5f9;color:#64748b;text-align:center;padding:2px 6px;border:1px solid #e2e8f0;font-weight:600">${r}</td>`;
     for(let c=1;c<=maxC;c++){
       if(skip[r+'_'+c]) continue;
       const m=merged[r+'_'+c]; const cell=ws.getRow(r).getCell(c);
       const t=_cellText(cell.value); const bold=cell.font&&cell.font.bold;
-      h+=`<td ${m?`rowspan="${m.rs}" colspan="${m.cs}"`:''} onclick="pickCellDone('${_colL(c)}${r}')" onmouseover="this.style.outline='2px solid #2563eb'" onmouseout="this.style.outline=''"
-        style="border:1px solid #cbd5e1;padding:2px 6px;min-width:28px;max-width:260px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:crosshair;${bold?'font-weight:700;':''}${t?'':'background:#fafafa;'}" title="${_colL(c)}${r}">${esc(t)}</td>`;
+      const bd=cell.border||{}; const fillc=_argb(cell.fill);
+      const inAntet=antetRows.has(r);
+      const bgc=inAntet?'#fef3c7':(fillc||(t?'':'#fff'));
+      h+=`<td ${m?`rowspan="${m.rs}" colspan="${m.cs}"`:''} onclick="pickCellTry('${_colL(c)}${r}',${t?1:0},${inAntet?1:0})" onmouseover="this.style.outline='2px solid #2563eb'" onmouseout="this.style.outline=''"
+        style="border-top:${bs(bd.top)};border-left:${bs(bd.left)};border-bottom:${bs(bd.bottom)};border-right:${bs(bd.right)};padding:2px 6px;min-width:28px;max-width:280px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:crosshair;${bold?'font-weight:700;':''}${bgc?'background:'+bgc+';':''}" title="${_colL(c)}${r}${t?' — dolu':' — boş'}">${esc(t)}</td>`;
     }
     h+='</tr>';
   }
   h+='</table></div></div>';
   bg.innerHTML=h;
+}
+function pickCellTry(addr,hasText,inAntet){
+  if(inAntet){ if(!confirm(addr+' üst antet bölgesinde — bu bölge üretimde Sanifoam antetiyle DEĞİŞTİRİLİR, seçim kaybolur. Yine de seçilsin mi?')) return; }
+  else if(hasText){ if(!confirm(addr+' hücresi DOLU — üretimde üzerine yazılır. Bu hücre seçilsin mi? (Genelde etiketin YANINDAKİ boş kutu seçilir.)')) return; }
+  pickCellDone(addr);
 }
 function pickCellDone(addr){
   const bg=document.getElementById('cellPickBg'); if(bg) bg.remove();
