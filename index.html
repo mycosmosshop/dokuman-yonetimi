@@ -165,6 +165,7 @@
   <span style="opacity:.8;font-size:.85em">Güncel Doküman Listesi · LeanSys</span>
   <span class="sp"></span>
   <button class="btn" onclick="loadDocs()">🔄 Yenile</button>
+  <button class="btn" id="syncBtn" onclick="syncFromLeansys()" title="LeanSys'te açılan yeni / değişen doküman kayıtlarını listeye çeker (orijinal kayıtlar; antet işi değil)">📥 LeanSys'ten Güncelle</button>
   <button class="btn" id="codeBtn" onclick="openCodeModal()">🔢 Sıradaki Kod</button>
   <button class="btn" id="adminBtn" onclick="toggleAdmin()" title="Admin kilidi">🔒</button>
   <div class="menu-wrap admin-only">
@@ -943,6 +944,36 @@ async function managedSave(gen){
   }catch(e){ msg.textContent='Hata: '+e.message; toast('Hata: '+e.message,'err'); }
 }
 const DOK_AGENT='http://127.0.0.1:8799';   // yerel doküman ajanı (dokuman_sync_server.py)
+// LeanSys'te açılan YENİ/değişen doküman kayıtlarını listeye çek (orijinal kayıt senkronu; antet işi DEĞİL).
+// Yerel ajan açıksa ANINDA; değilse app_flags bayrağı -> merkezi işçi (hangi makine açıksa) çeker.
+async function syncFromLeansys(){
+  const btn=document.getElementById('syncBtn'); if(btn){btn.disabled=true;btn.textContent='📥 Taranıyor…';}
+  const done=()=>{ if(btn){btn.disabled=false;btn.textContent='📥 LeanSys\'ten Güncelle';} };
+  try{
+    const r=await fetch(DOK_AGENT+'/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const j=await r.json();
+    if(j.ok){ toast(`✅ LeanSys senkron: ${j.new} yeni, ${j.changed} değişen, ${j.internal||0} iç güncelleme — ${j.written} yazıldı.`,'ok'); await loadDocs(); done(); return; }
+    toast('Senkron hatası: '+(j.error||'?'),'err'); done(); return;
+  }catch(e){ /* ajan yok → merkezi işçi bayrakla */ }
+  try{
+    const reqAt=new Date().toISOString();
+    const {error}=await sb.from('app_flags').upsert({key:'doc_sync',requested_at:reqAt},{onConflict:'key'});
+    if(error) throw error;
+    toast('📥 Senkron sıraya alındı — merkezi işçi LeanSys\'ten çekiyor (~yarım dk)…','ok');
+    const t0=Date.now();
+    const timer=setInterval(async()=>{
+      try{
+        const {data}=await sb.from('app_flags').select('done_at,info').eq('key','doc_sync').single();
+        if(data&&data.done_at&&new Date(data.done_at)>=new Date(reqAt)){
+          clearInterval(timer); done(); const i=data.info||{};
+          if(i.error){ toast('Senkron hatası: '+i.error,'err'); return; }
+          toast(`✅ LeanSys senkron: ${i.new||0} yeni, ${i.changed||0} değişen — ${i.written||0} yazıldı.`,'ok');
+          await loadDocs();
+        } else if(Date.now()-t0>120000){ clearInterval(timer); done(); toast('Senkron sürüyor — birazdan 🔄 Yenile\'ye bas.','ok'); }
+      }catch(_){ if(Date.now()-t0>120000){ clearInterval(timer); done(); } }
+    },3000);
+  }catch(e){ done(); toast('Hata: '+e.message+' (supabase_app_flags.sql çalıştırıldı mı?)','err'); }
+}
 async function managedGenerate(rec,msg){
   const dok=(rec.dok_no||'').trim();
   if(!dok){ if(msg)msg.textContent='Doküman No yok.'; throw new Error('dok_no yok'); }
