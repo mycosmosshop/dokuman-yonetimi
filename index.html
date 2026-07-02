@@ -592,7 +592,8 @@ const TPL_FIELDS=[
   ['aciklama','Açıklama'],['elektronik_dagitim','Elektronik Dağıtım'],['matbu_dagitim','Matbu Dağıtım'],
   ['arsiv_yeri','Arşiv Yeri'],['arsiv_sorumlusu','Arşiv Sorumlusu'],['arsiv_suresi','Arşiv Süresi (Yıl)'],
   ['gozden_gecirme_suresi','Gözden Geçirme (Ay)'],['imha_yetkilisi','İmha Yetkilisi'],
-  ['proses_sorumlusu','Proses Sorumlusu'],['egitim_gerekli','Eğitim Gerekli (Evet/Hayır)']
+  ['proses_sorumlusu','Proses Sorumlusu'],['egitim_gerekli','Eğitim Gerekli (Evet/Hayır)'],
+  ['dosya_adi','Dosya Adı']
 ];
 let _tplBuf=null, _tplName='', _tplExt='', _tplData={};
 function tplDataFromDoc(d){ return {
@@ -604,7 +605,8 @@ function tplDataFromDoc(d){ return {
   aciklama:d.aciklama||'', elektronik_dagitim:d.elektronik_dagitim||'', matbu_dagitim:d.matbu_dagitim||'',
   arsiv_yeri:d.arsiv_yeri||'', arsiv_sorumlusu:d.arsiv_sorumlusu||'', arsiv_suresi:(d.arsiv_suresi==null?'':d.arsiv_suresi)+'',
   gozden_gecirme_suresi:(d.gozden_gecirme_suresi==null?'':d.gozden_gecirme_suresi)+'', imha_yetkilisi:d.imha_yetkilisi||'',
-  proses_sorumlusu:d.proses_sorumlusu||'', egitim_gerekli:(d.egitim_gerekli===true?'Evet':(d.egitim_gerekli===false?'Hayır':''))
+  proses_sorumlusu:d.proses_sorumlusu||'', egitim_gerekli:(d.egitim_gerekli===true?'Evet':(d.egitim_gerekli===false?'Hayır':'')),
+  dosya_adi:d.dosya_adi||''
 }; }
 function switchTab(t){
   const tabs={list:'tabList',managed:'tabManaged'}, btns={list:'tabBtnList',managed:'tabBtnManaged'};
@@ -1218,7 +1220,9 @@ function renderManagedPanel(withSearch){
           <input value="${esc(v)}" oninput="(_mRec.extra=_mRec.extra||{})['${f.key}']=this.value" placeholder="değer gir — boşsa dokümana basılmaz" style="flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em">
           ${_ltd?`<select onchange="if(this.value){managedFillFromDoc('${esc(f.key)}',this.value);}this.selectedIndex=0" title="Değeri elle yazmak yerine bu dokümanın LeanSys verisinden seç" style="max-width:170px;padding:6px;border:1px solid var(--line);border-radius:7px;font-size:.8em;color:#1e3c72">
             <option value="">⤵ LeanSys'ten…</option>
-            ${TPL_FIELDS.filter(t=>_ltd[t[0]]).map(t=>`<option value="${t[0]}">${esc(t[1])}: ${esc(String(_ltd[t[0]]).slice(0,28))}</option>`).join('')}
+            ${TPL_FIELDS.map(t=>_ltd[t[0]]
+              ?`<option value="${t[0]}">${esc(t[1])}: ${esc(String(_ltd[t[0]]).slice(0,28))}</option>`
+              :`<option value="" disabled style="color:#9ca3af">${esc(t[1])}: (boş)</option>`).join('')}
           </select>`:''}
         </div></div>`; });
     h+='</div>';
