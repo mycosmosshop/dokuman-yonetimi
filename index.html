@@ -871,7 +871,13 @@ function mfOpen(dok){
 }
 async function mfUpload(files){
   const dok=((_mRec&&_mRec.dok_no)||'').trim();
-  if(!dok){ toast('Önce Doküman No gir (ve kaydet).','err'); return; }
+  if(!dok){ toast('Önce Doküman No gir.','err'); return; }
+  // Kayıt henüz oluşturulmadıysa (🆕 yeni doküman) ÖNCE kaydı oluştur — işçi üretebilsin
+  if(_mNew){
+    try{ const data=await managedWrite(managedPayload(_mRec),true); _mRec.id=data.id; _mNew=false;
+      auditLog(dok,'ekleme',{kaynak:'yeni doküman (dosya yüklemesiyle)'}); }
+    catch(e){ toast('Kayıt oluşturulamadı: '+e.message,'err'); return; }
+  }
   let n=0;
   for(const f of files){
     if(!/\.(docx|xlsx)$/i.test(f.name)){ toast(f.name+': sadece .docx / .xlsx yüklenebilir.','err'); continue; }
@@ -1193,9 +1199,11 @@ function renderManaged(){
     const st=r.durum||'Yürürlükte';
     const stc=st==='Taslak'?'color:#b45309;background:#fef3c7':(st==='Arşiv'?'color:#475569;background:#e2e8f0':'color:#15803d;background:#dcfce7');
     const kids=MFILES[r.dok_no]||[];
-    const acCell=kids.length
+    const acCell=kids.length>1
       ?`<a href="javascript:mfOpen('${esc(r.dok_no)}')" title="Bu no altındaki dokümanlar">📁 ${kids.length} doküman</a>`
-      :(r.drive_view?`<a href="${esc(r.drive_view)}" target="_blank" rel="noopener">📄 aç</a>`:'<span style="color:#94a3b8">—</span>');
+      :(kids.length===1
+        ?(kids[0].drive_view?`<a href="${esc(kids[0].drive_view)}" target="_blank" rel="noopener">📄 aç</a>`:'<span style="color:#b45309;font-size:.85em">⏳</span>')
+        :(r.drive_view?`<a href="${esc(r.drive_view)}" target="_blank" rel="noopener">📄 aç</a>`:'<span style="color:#94a3b8">—</span>'));
     const manuel=(ADMIN&&r.origin==='manuel')?' <span title="LeanSys dışı — sıfırdan oluşturuldu (yalnız admin görür)" style="color:#7c3aed;font-weight:900">✦</span>':'';
     return `<tr${st==='Arşiv'?' style="opacity:.55"':''}>
     <td><b>${esc(r.dok_no)}</b>${manuel} <span style="font-size:.7em;padding:1px 7px;border-radius:999px;font-weight:700;${stc}">${esc(st)}</span></td><td>${esc(r.doc_adi)}</td><td>${esc(r.tip)}</td><td><span class="rev">${esc(r.rev_no)}</span></td><td>${esc(r.rev_tarihi)}</td>
@@ -1286,11 +1294,21 @@ function renderManagedPanel(withSearch){
     <select onchange="_mRec.durum=this.value" title="Doküman yaşam döngüsü (M-Files tarzı)" style="padding:5px 8px;border:1px solid var(--line);border-radius:7px;font-size:.85em">
       ${['Taslak','Yürürlükte','Arşiv'].map(s=>`<option ${((r.durum||'Yürürlükte')===s)?'selected':''}>${s}</option>`).join('')}
     </select></span></div>`;
-  h+=`<div style="margin:0 0 12px;padding:10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
-    <div style="font-size:.84em;color:#1e40af;font-weight:600;margin-bottom:5px">📎 Orijinal dokümanı yükle (içerik antet içine gömülür)</div>
-    <input type="file" id="mEmbed" accept=".docx" onchange="onMEmbed()" style="font-size:.85em;width:100%">
-    <div id="mEmbedInfo" style="font-size:.82em;color:var(--muted);margin-top:5px">${_mEmbedName?('Gömülecek: <b>'+esc(_mEmbedName)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'):'Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'}</div>
-  </div>`;
+  // ---- İÇERİK DOSYALARI: LeanSys'te KAYNAĞI OLMAYAN (🆕 sıfırdan) dokümanın içeriği buradan
+  // yüklenir; birden çok dosya = çoklu doküman (hepsi aynı metadata/antetle üretilir).
+  // LeanSys'te kaynağı olan dokümanda boş bırakılırsa içerik LeanSys'ten alınır.
+  {
+    const _kids=MFILES[(r.dok_no||'').trim()]||[];
+    h+=`<div style="margin:0 0 12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+      <div style="font-size:.86em;color:#1e40af;font-weight:700;margin-bottom:4px">📎 İçerik Dosyaları <span style="font-weight:400">— tek dosya ya da çoklu doküman (.docx/.xlsx)</span></div>
+      <div style="font-size:.78em;color:var(--muted);margin-bottom:6px">🆕 sıfırdan oluşturulan dokümanın içeriği BURADAN yüklenir. Birden çok dosya yüklersen hepsi AYNI metadata/antetle üretilir; metadata değişince tümü yenilenir. Boş bırakılırsa içerik LeanSys kaynağından alınır.</div>
+      <input type="file" multiple accept=".docx,.xlsx" onchange="mfUpload(this.files);this.value=''" style="font-size:.85em">
+      ${_kids.length?_kids.map(k=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed #bfdbfe;font-size:.88em">
+        <span>${k.fmt==='xlsx'?'📊':'📄'}</span><b style="flex:1">${esc(k.ad||'')}</b>
+        ${k.drive_view?`<a href="${esc(k.drive_view)}" target="_blank" rel="noopener">aç</a>`:'<span style="color:#b45309;font-size:.85em">⏳ üretiliyor…</span>'}
+        <button class="rev-x" title="Sil" onclick="mfDelete(${k.id},'${esc(r.dok_no)}')">✕</button></div>`).join(''):''}
+    </div>`;
+  }
   h+='<div class="grid">';
   MANAGED_FIELDS.forEach(f=>{ const full=(f[0]==='doc_adi'||f[0]==='rev_sebebi'); h+=`<div class="fld" style="${full?'grid-column:1/-1':''}"><span class="k">${esc(f[1])} <code class="tagchip" draggable="true" title="sürükle → şablona bırak · tıkla → kopyala" style="font-size:.85em">{{${f[0]}}}</code></span><input data-mk="${f[0]}" value="${esc(r[f[0]]||'')}" oninput="_mRec['${f[0]}']=this.value" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
   h+='</div>';
@@ -1330,19 +1348,6 @@ function renderManagedPanel(withSearch){
     <button class="tpl-btn" style="width:auto" onclick="managedAddField()">➕ Yeni Metadata Alanı</button>
     <span style="font-size:.8em;color:var(--muted)"><b>Basit akış:</b> alanı ekle → değerini yaz → <b>Kaydet &amp; Üret</b> → seçtiğin yerde (antet / alt blok) kendiliğinden görünür. Elle konum istersen "{{etiket}} konumu"nu seç ve çipi şablona sürükle.</span>
   </div>`;
-  // ---- ÇOKLU DOKÜMAN: aynı no altında birden çok içerik dosyası ----
-  {
-    const _kids=MFILES[(r.dok_no||'').trim()]||[];
-    h+=`<div style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px">
-      <div style="font-weight:700;font-size:.9em;margin-bottom:4px">📁 Çoklu Doküman <span style="font-weight:400;color:var(--muted);font-size:.85em">— aynı no altında birden çok içerik; hepsi AYNI metadata/antetle üretilir, metadata değişince tümü yenilenir</span></div>
-      <input type="file" multiple accept=".docx,.xlsx" onchange="mfUpload(this.files);this.value=''" style="font-size:.85em;margin:4px 0">
-      ${_kids.length?_kids.map(k=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed #e3e8ef;font-size:.88em">
-        <span>${k.fmt==='xlsx'?'📊':'📄'}</span><b style="flex:1">${esc(k.ad||'')}</b>
-        ${k.drive_view?`<a href="${esc(k.drive_view)}" target="_blank" rel="noopener">aç</a>`:'<span style="color:#b45309;font-size:.85em">⏳ üretiliyor…</span>'}
-        <button class="rev-x" title="Sil" onclick="mfDelete(${k.id},'${esc(r.dok_no)}')">✕</button></div>`).join('')
-      :'<div style="font-size:.8em;color:var(--muted)">Henüz bağlı dosya yok — birden çok .docx/.xlsx seçebilirsin.</div>'}
-    </div>`;
-  }
   h+=`<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
     <button class="tpl-btn go" style="width:auto" onclick="managedSave(true)">💾 Kaydet & Üret (Drive)</button>
     <button class="tpl-btn" style="width:auto" onclick="managedSave(false)">Kaydet</button>
