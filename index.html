@@ -125,6 +125,9 @@
   .tpl-card input[type=file]{font-size:.85em;width:100%}
   .tpl-src{display:flex;flex-direction:column;gap:6px;font-size:.9em;margin-bottom:10px}
   #tplDocSearch,.tpl-fields input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.88em}
+  code.tagchip{cursor:grab;background:#eef2ff;color:#3730a3;padding:2px 6px;border-radius:6px;border:1px solid #c7d2fe;user-select:none;display:inline-block;margin:2px 2px}
+  code.tagchip:active{cursor:grabbing}
+  code.tagchip:hover{background:#e0e7ff}
   .tpl-results{max-height:170px;overflow:auto;margin-top:6px;border:1px solid var(--line);border-radius:8px;display:none}
   .tpl-results.on{display:block}
   .tpl-results div{padding:7px 10px;cursor:pointer;font-size:.85em;border-bottom:1px solid #eef1f6}
@@ -595,7 +598,11 @@ const TPL_FIELDS=[
   ['rev_no','Revizyon No'],['rev_tarihi','Revizyon Tarihi'],['rev_sebebi','Revizyon Sebebi'],
   ['yayin_tarihi','Yayın Tarihi'],['hazirlanma_tarihi','Hazırlanma Tarihi'],
   ['onay_tarihi','Onay Tarihi'],['hazirlayan','Hazırlayan'],['onaylayan','Onaylayan'],
-  ['sube','Şube'],['bugun','Bugün']
+  ['sube','Şube'],['bugun','Bugün'],
+  ['aciklama','Açıklama'],['elektronik_dagitim','Elektronik Dağıtım'],['matbu_dagitim','Matbu Dağıtım'],
+  ['arsiv_yeri','Arşiv Yeri'],['arsiv_sorumlusu','Arşiv Sorumlusu'],['arsiv_suresi','Arşiv Süresi (Yıl)'],
+  ['gozden_gecirme_suresi','Gözden Geçirme (Ay)'],['imha_yetkilisi','İmha Yetkilisi'],
+  ['proses_sorumlusu','Proses Sorumlusu'],['egitim_gerekli','Eğitim Gerekli (Evet/Hayır)']
 ];
 let _tplBuf=null, _tplName='', _tplExt='', _tplData={};
 function tplDataFromDoc(d){ return {
@@ -603,13 +610,17 @@ function tplDataFromDoc(d){ return {
   rev_no:(d.rev_no==null?'':d.rev_no)+'', rev_tarihi:fmt(d.rev_tarihi), rev_sebebi:d.rev_sebebi||'',
   yayin_tarihi:fmt(d.yayin_tarihi), hazirlanma_tarihi:fmt(d.hazirlanma_tarihi),
   onay_tarihi:fmt(d.onay_tarihi), hazirlayan:d.hazirlayan||'', onaylayan:d.onaylayan||'',
-  sube:d.sube||'', bugun:fmt(new Date().toISOString())
+  sube:d.sube||'', bugun:fmt(new Date().toISOString()),
+  aciklama:d.aciklama||'', elektronik_dagitim:d.elektronik_dagitim||'', matbu_dagitim:d.matbu_dagitim||'',
+  arsiv_yeri:d.arsiv_yeri||'', arsiv_sorumlusu:d.arsiv_sorumlusu||'', arsiv_suresi:(d.arsiv_suresi==null?'':d.arsiv_suresi)+'',
+  gozden_gecirme_suresi:(d.gozden_gecirme_suresi==null?'':d.gozden_gecirme_suresi)+'', imha_yetkilisi:d.imha_yetkilisi||'',
+  proses_sorumlusu:d.proses_sorumlusu||'', egitim_gerekli:(d.egitim_gerekli===true?'Evet':(d.egitim_gerekli===false?'Hayır':''))
 }; }
 function switchTab(t){
   const tabs={list:'tabList',tpl:'tabTemplates',managed:'tabManaged'}, btns={list:'tabBtnList',tpl:'tabBtnTpl',managed:'tabBtnManaged'};
   Object.keys(tabs).forEach(k=>{ const el=document.getElementById(tabs[k]); if(el) el.classList.toggle('hidden',k!==t); const b=document.getElementById(btns[k]); if(b) b.classList.toggle('on',k===t); });
   if(t==='tpl'){ tplRenderTags(); onTplSrc(); updateDriveStatus(); }
-  if(t==='managed'){ loadManaged(); startManagedAuto(); } else { stopManagedAuto(); }
+  if(t==='managed'){ loadManagedExtra().then(()=>loadManaged()); startManagedAuto(); } else { stopManagedAuto(); }
 }
 // Yönetilen Dokümanlar açıkken listeyi sessizce otomatik tazele → işçi üretince
 // "aç" linki sayfa yenilemeden güncel gelir (düzenleme/arama yaparken rahatsız etmez).
@@ -626,7 +637,7 @@ function startManagedAuto(){
   }, 6000);
 }
 function stopManagedAuto(){ if(_managedAuto){ clearInterval(_managedAuto); _managedAuto=null; } }
-function tplRenderTags(){ document.getElementById('tplTagList').innerHTML=TPL_FIELDS.map(f=>`<code>{{${f[0]}}}</code>`).join(' '); }
+function tplRenderTags(){ document.getElementById('tplTagList').innerHTML=TPL_FIELDS.map(f=>`<code class="tagchip" draggable="true" title="${esc(f[1])} — sürükle → şablona bırak · tıkla → kopyala">{{${f[0]}}}</code>`).join(' ')+`<div style="font-size:.78em;color:var(--muted);margin-top:5px">💡 Etiketi açık Word/Excel şablonunun üzerine <b>sürükleyip bırak</b> — imlecin olduğu yere metin olarak düşer; ya da tıkla → kopyala.</div>`; }
 function onTplFile(){
   const f=document.getElementById('tplFile').files[0]; if(!f) return;
   _tplName=f.name; _tplExt=(f.name.split('.').pop()||'').toLowerCase();
@@ -839,6 +850,36 @@ const MANAGED_FIELDS=[
   ['hazirlayan','Hazırlayan'],['onaylayan','Onaylayan'],['sube','Şube']
 ];
 let MANAGED=[], _mRec=null, _mNew=false;
+// ---- Özel metadata alan TANIMLARI (paylaşımlı; app_flags key='managed_fields') ----
+let MANAGED_EXTRA=[];
+async function loadManagedExtra(){
+  try{ const {data}=await sb.from('app_flags').select('info').eq('key','managed_fields').maybeSingle();
+    MANAGED_EXTRA=(data&&data.info&&Array.isArray(data.info.fields))?data.info.fields:[]; }
+  catch(e){ MANAGED_EXTRA=[]; }
+}
+async function saveManagedExtra(){
+  const {error}=await sb.from('app_flags').upsert({key:'managed_fields',info:{fields:MANAGED_EXTRA}},{onConflict:'key'});
+  if(error) throw error;
+}
+function slugTag(s){ const m={'ç':'c','ğ':'g','ı':'i','ö':'o','ş':'s','ü':'u'}; return (s||'').toLocaleLowerCase('tr').replace(/[çğıöşü]/g,c=>m[c]||c).replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,30); }
+async function managedAddField(){
+  const label=prompt('Yeni metadata alanının adı (ör: Departman, Süreç Sahibi):'); if(!label||!label.trim()) return;
+  const key=slugTag(label);
+  if(!key){ toast('Geçersiz ad.','err'); return; }
+  if(MANAGED_FIELDS.some(f=>f[0]===key)||MANAGED_EXTRA.some(f=>f.key===key)){ toast('Bu alan zaten var: {{'+key+'}}','err'); return; }
+  MANAGED_EXTRA.push({key:key,label:label.trim()});
+  try{ await saveManagedExtra(); toast('✅ "'+label.trim()+'" eklendi — etiketi {{'+key+'}} · tüm kayıtlarda kullanılabilir.','ok'); renderManagedPanel(!!document.getElementById('mPick')); }
+  catch(e){ MANAGED_EXTRA.pop(); toast('Hata: '+e.message+' — Supabase\'de supabase_app_flags.sql + extra kolonu SQL\'i çalıştırılmalı.','err'); }
+}
+async function managedDelField(key){
+  if(!confirm('{{'+key+'}} alan tanımı kaldırılsın mı? (Kayıtlardaki girilmiş değerler silinmez, sadece form/üretimden çıkar.)')) return;
+  const old=MANAGED_EXTRA.slice(); MANAGED_EXTRA=MANAGED_EXTRA.filter(f=>f.key!==key);
+  try{ await saveManagedExtra(); renderManagedPanel(!!document.getElementById('mPick')); }
+  catch(e){ MANAGED_EXTRA=old; toast('Hata: '+e.message,'err'); }
+}
+// Etiket çipleri: sürükle (şablonun üzerine bırak → {{etiket}} metni düşer) + tıkla-kopyala
+document.addEventListener('dragstart',e=>{ const c=e.target&&e.target.closest?e.target.closest('code.tagchip'):null; if(c) e.dataTransfer.setData('text/plain',c.textContent); });
+document.addEventListener('click',e=>{ const c=e.target&&e.target.closest?e.target.closest('code.tagchip'):null; if(c&&navigator.clipboard){ navigator.clipboard.writeText(c.textContent); toast('Kopyalandı: '+c.textContent,'ok'); } });
 let _mEmbedBuf=null, _mEmbedName='';
 function onMEmbed(){ const f=document.getElementById('mEmbed').files[0]; if(!f) return; if(!/\.docx$/i.test(f.name)){ toast('Sadece .docx gömülebilir.','err'); return; } _mEmbedName=f.name; const r=new FileReader(); r.onload=()=>{ _mEmbedBuf=r.result; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Gömülecek (içerik korunur): <b>'+esc(f.name)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'; }; r.readAsArrayBuffer(f); }
 function clearMEmbed(){ _mEmbedBuf=null; _mEmbedName=''; const fi=document.getElementById('mEmbed'); if(fi) fi.value=''; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'; }
@@ -909,8 +950,19 @@ function renderManagedPanel(withSearch){
     <div id="mEmbedInfo" style="font-size:.82em;color:var(--muted);margin-top:5px">${_mEmbedName?('Gömülecek: <b>'+esc(_mEmbedName)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'):'Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'}</div>
   </div>`;
   h+='<div class="grid">';
-  MANAGED_FIELDS.forEach(f=>{ const full=(f[0]==='doc_adi'||f[0]==='rev_sebebi'); h+=`<div class="fld" style="${full?'grid-column:1/-1':''}"><span class="k">${esc(f[1])} <code style="font-size:.85em">{{${f[0]}}}</code></span><input data-mk="${f[0]}" value="${esc(r[f[0]]||'')}" oninput="_mRec['${f[0]}']=this.value" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
+  MANAGED_FIELDS.forEach(f=>{ const full=(f[0]==='doc_adi'||f[0]==='rev_sebebi'); h+=`<div class="fld" style="${full?'grid-column:1/-1':''}"><span class="k">${esc(f[1])} <code class="tagchip" draggable="true" title="sürükle → şablona bırak · tıkla → kopyala" style="font-size:.85em">{{${f[0]}}}</code></span><input data-mk="${f[0]}" value="${esc(r[f[0]]||'')}" oninput="_mRec['${f[0]}']=this.value" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
   h+='</div>';
+  // ---- ÖZEL METADATA ALANLARI (paylaşımlı tanım: app_flags key='managed_fields'; değerler kayıtta extra jsonb) ----
+  if(MANAGED_EXTRA.length){
+    h+='<div class="grid" style="margin-top:10px">';
+    MANAGED_EXTRA.forEach(f=>{ const v=((r.extra||{})[f.key])||'';
+      h+=`<div class="fld"><span class="k">${esc(f.label)} <code class="tagchip" draggable="true" title="sürükle → şablona bırak · tıkla → kopyala" style="font-size:.85em">{{${f.key}}}</code> <a href="javascript:managedDelField('${esc(f.key)}')" title="Alan tanımını kaldır" style="color:#b91c1c;text-decoration:none;font-size:.85em">✕</a></span><input value="${esc(v)}" oninput="(_mRec.extra=_mRec.extra||{})['${f.key}']=this.value" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
+    h+='</div>';
+  }
+  h+=`<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <button class="tpl-btn" style="width:auto" onclick="managedAddField()">➕ Yeni Metadata Alanı</button>
+    <span style="font-size:.8em;color:var(--muted)">Yeni alan TÜM kayıtlarda görünür; etiketi <code>{{alan_adi}}</code> olur. Etiketi açık Word/Excel şablonunun üzerine <b>sürükle-bırak</b> (imlecin olduğu yere düşer) ya da tıkla-kopyala → üretimde gerçek değerle değişir.</span>
+  </div>`;
   h+=`<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
     <button class="tpl-btn go" style="width:auto" onclick="managedSave(true)">💾 Kaydet & Üret (Drive)</button>
     <button class="tpl-btn" style="width:auto" onclick="managedSave(false)">Kaydet</button>
@@ -935,7 +987,7 @@ function managedPickDoc(no){
   _mRec.fmt=/xls/i.test(pick.dosya_uzanti||'')?'xlsx':'docx';
   renderManagedPanel(false);
 }
-function managedPayload(r){ const o={fmt:r.fmt||'docx',updated_at:new Date().toISOString()}; MANAGED_FIELDS.forEach(f=>o[f[0]]=r[f[0]]||null); if(r.drive_id!=null)o.drive_id=r.drive_id; if(r.drive_view!=null)o.drive_view=r.drive_view; return o; }
+function managedPayload(r){ const o={fmt:r.fmt||'docx',updated_at:new Date().toISOString()}; MANAGED_FIELDS.forEach(f=>o[f[0]]=r[f[0]]||null); if(r.drive_id!=null)o.drive_id=r.drive_id; if(r.drive_view!=null)o.drive_view=r.drive_view; if(MANAGED_EXTRA.length||Object.keys(r.extra||{}).length)o.extra=r.extra||{}; return o; }
 async function managedSave(gen){
   const msg=document.getElementById('mEditMsg'); _mRec.fmt=(document.querySelector('input[name=mFmt]:checked')||{}).value||'docx';
   try{
