@@ -533,7 +533,9 @@ function showDetail(i){
   _revDoc=d; _revEditId=null; _revOpen=false;
   $('#mTitle').textContent=`${d.doc_no||''} — ${d.doc_adi||''}`;
   let h='<div class="grid">';
-  h+='<div style="grid-column:1/-1;margin-bottom:4px"><button class="copy open" onclick="tplFromDoc(_revDoc)" style="font-size:.86em;padding:8px 14px">📋 Antetli Word/Excel oluştur (üst+alt antet)</button></div>';
+  h+='<div style="grid-column:1/-1;margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap">'
+    +'<button class="copy open" onclick="managedQuickAdd(_revDoc.doc_no)" style="font-size:.86em;padding:8px 14px;background:#166534;border-color:#166534" title="Yönetilen Dokümanlara ekler; antet+içerik otomatik üretilir ve Drive linki gelir — başka işlem gerekmez">⚡ Yönetilene Ekle &amp; Üret (tek tuş)</button>'
+    +'<button class="copy open" onclick="tplFromDoc(_revDoc)" style="font-size:.86em;padding:8px 14px">📋 Antetli Word/Excel oluştur (üst+alt antet)</button></div>';
   h+='<div class="sec">Genel</div>';
   h+=fld('Tip',d.tip)+fld('Doküman No',d.doc_no)+fld('Doküman Adı',d.doc_adi)+fld('Şube',d.sube);
   h+=`<div class="fld" style="grid-column:1/-1"><span class="k">Açıklama</span><span class="v">${esc(d.aciklama)||'—'}</span></div>`;
@@ -868,6 +870,30 @@ function renderManaged(){
 function managedEdit(id){ const r=MANAGED.find(x=>x.id===id); if(r) openManagedPanel(Object.assign({},r),false,false); }
 function managedAddEmpty(){ openManagedPanel({fmt:'docx'},true,false); }
 function managedAddFromDoc(){ if(!DOCS.length){ toast('Önce Doküman Listesi yüklensin.','err'); return; } openManagedPanel({fmt:'docx'},true,true); }
+// TEK TUŞ: LeanSys dokümanını yönetilene ekle + üretimi tetikle (ek işlem yok).
+// Kaynak dosyayı ve içeriği MERKEZİ İŞÇİ LeanSys ağından kendisi bulur (pick_best);
+// format uzantıdan çıkar. Aynı dok_no varsa SİLME-YENİDEN-EKLEME YOK → güncelle (id sabit kalır).
+async function managedQuickAdd(no){
+  no=(no||'').trim(); if(!no){ toast('Doküman no yok.','err'); return; }
+  let pick=null; for(const d of DOCS){ if(d.doc_no===no && isGuncel(d)){ pick=d; break; } }
+  if(!pick) for(const d of DOCS){ if(d.doc_no===no){ pick=d; break; } }
+  if(!pick){ toast('Doküman bulunamadı: '+no,'err'); return; }
+  const td=tplDataFromDoc(pick);
+  const fmt=/xls/i.test(pick.dosya_uzanti||'')?'xlsx':'docx';
+  const rec={fmt:fmt,updated_at:new Date().toISOString()};
+  MANAGED_FIELDS.forEach(f=>{ rec[f[0]]=td[f[0]]||null; });
+  toast('⚡ '+no+' ekleniyor…');
+  try{
+    const {data:ex,error:qe}=await sb.from('managed_docs').select('id').eq('dok_no',no).limit(1); if(qe) throw qe;
+    if(ex&&ex.length){ const {error}=await sb.from('managed_docs').update(Object.assign({drive_at:null},rec)).eq('id',ex[0].id); if(error) throw error; }
+    else { const {error}=await sb.from('managed_docs').insert(rec); if(error) throw error; }
+    fetch(DOK_AGENT+'/regen?dok='+encodeURIComponent(no)).catch(()=>{}); // yerel ajan varsa ANINDA; yoksa merkezi işçi ~birkaç sn
+    if(typeof closeModal==='function') try{ closeModal(); }catch(e){}
+    const eb=document.getElementById('mEditBg'); if(eb&&eb.classList.contains('on')) closeManagedEdit();
+    switchTab('managed');
+    toast('✅ '+no+' ('+fmt.toUpperCase()+') eklendi — antet+içerik üretiliyor, "aç" birazdan gelir.','ok');
+  }catch(e){ toast('Hata: '+e.message,'err'); }
+}
 function openManagedPanel(rec,isNew,withSearch){ _mRec=rec; _mNew=isNew; _mEmbedBuf=null; _mEmbedName=''; renderManagedPanel(withSearch); document.getElementById('mEditBg').classList.add('on'); }
 function closeManagedEdit(){ document.getElementById('mEditBg').classList.remove('on'); _mRec=null; _mEmbedBuf=null; _mEmbedName=''; }
 function renderManagedPanel(withSearch){
@@ -897,7 +923,7 @@ function managedDocSuggest(){
   if(!q){ box.classList.remove('on'); box.innerHTML=''; return; }
   const seen=new Set(), out=[];
   for(const d of DOCS){ if(!d.doc_no||seen.has(d.doc_no)) continue; if(((d.doc_no||'')+' '+(d.doc_adi||'')).toLocaleLowerCase('tr').includes(q)){ seen.add(d.doc_no); out.push(d); if(out.length>=40) break; } }
-  box.innerHTML=out.length?out.map(d=>`<div onclick="managedPickDoc('${esc(d.doc_no)}')"><b>${esc(d.doc_no)}</b> — ${esc(d.doc_adi)}</div>`).join(''):'<div>Eşleşme yok</div>';
+  box.innerHTML=out.length?out.map(d=>`<div style="display:flex;align-items:center;gap:8px"><span style="flex:1;cursor:pointer" onclick="managedPickDoc('${esc(d.doc_no)}')"><b>${esc(d.doc_no)}</b> — ${esc(d.doc_adi)}</span><button class="copy open" style="white-space:nowrap;font-size:.8em;padding:4px 8px" onclick="event.stopPropagation();managedQuickAdd('${esc(d.doc_no)}')" title="Tek tuş: ekle + otomatik üret (form doldurmaya gerek yok)">⚡ ekle &amp; üret</button></div>`).join(''):'<div>Eşleşme yok</div>';
   box.classList.add('on');
 }
 function managedPickDoc(no){
