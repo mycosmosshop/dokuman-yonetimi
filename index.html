@@ -218,6 +218,7 @@
     <div class="filters">
       <input id="mAra" placeholder="🔍 No / Ad / Hazırlayan ara…" oninput="renderManaged()">
       <button class="tpl-btn" style="width:auto;margin:0" onclick="managedAddFromDoc()">➕ LeanSys'ten ekle</button>
+      <button class="tpl-btn" style="width:auto;margin:0" onclick="managedNewSeq()" title="LeanSys'te olmayan yeni doküman — numarayı sıradaki kod verir (çakışmaz)">🆕 Yeni Doküman (sıradaki no)</button>
       <button class="tpl-btn" style="width:auto;margin:0" onclick="managedAddEmpty()">➕ Boş kayıt</button>
       <span class="stat" id="mStat" style="margin-left:auto"></span>
     </div>
@@ -852,7 +853,53 @@ async function auditLog(dok,action,detay){
     await sb.from('doc_audit').insert({dok_no:dok||null,action:action,detay:detay||null,yapan:_userEmail});
   }catch(e){}  // tablo yoksa sessiz (supabase_dms.sql)
 }
-const _ACT_ICON={'ekleme':'🟢','güncelleme':'✏️','silme':'🗑','üretim':'📄','yeniden üretim':'🔄'};
+// ---- ÇOKLU DOKÜMAN: bir no altında birden çok içerik (kaynaklar Storage'da; işçi üretir) ----
+function mfOpen(dok){
+  const kids=MFILES[dok]||[];
+  let bg=document.getElementById('mfBg');
+  if(!bg){ bg=document.createElement('div'); bg.id='mfBg';
+    bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    bg.onclick=e=>{ if(e.target===bg) bg.remove(); };
+    document.body.appendChild(bg); }
+  bg.innerHTML=`<div style="background:#fff;border-radius:12px;width:560px;max-width:94vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center">📁 ${esc(dok)} — bağlı dokümanlar (${kids.length})<span style="flex:1"></span>
+      <button onclick="document.getElementById('mfBg').remove()" style="background:none;border:none;color:#fff;font-size:1.2em;cursor:pointer">✕</button></div>
+    <div style="overflow:auto">${kids.map(k=>`<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #eef1f6">
+      <span style="font-size:1.1em">${k.fmt==='xlsx'?'📊':'📄'}</span><b style="flex:1">${esc(k.ad||'')}</b>
+      ${k.drive_view?`<a href="${esc(k.drive_view)}" target="_blank" rel="noopener" style="font-weight:600">aç</a>`:'<span style="color:#b45309;font-size:.85em">⏳ üretiliyor…</span>'}
+    </div>`).join('')||'<div style="padding:20px;text-align:center;color:#94a3b8">Dosya yok</div>'}</div></div>`;
+}
+async function mfUpload(files){
+  const dok=((_mRec&&_mRec.dok_no)||'').trim();
+  if(!dok){ toast('Önce Doküman No gir (ve kaydet).','err'); return; }
+  let n=0;
+  for(const f of files){
+    if(!/\.(docx|xlsx)$/i.test(f.name)){ toast(f.name+': sadece .docx / .xlsx yüklenebilir.','err'); continue; }
+    const safe=f.name.replace(/[^\w.\-çğıöşüÇĞİÖŞÜ ]/g,'_');
+    const path=dok.replace(/[^\w.-]/g,'_')+'/'+Date.now()+'_'+safe;
+    const {error}=await sb.storage.from('kaynak').upload(path,f,{upsert:true});
+    if(error){ toast('Yükleme hatası: '+error.message+' — supabase_coklu.sql çalıştırıldı mı?','err'); return; }
+    const fmt=/\.xlsx$/i.test(f.name)?'xlsx':'docx';
+    const {error:e2}=await sb.from('managed_files').insert({dok_no:dok,ad:f.name.replace(/\.(docx|xlsx)$/i,''),storage_path:path,fmt:fmt});
+    if(e2){ toast('Kayıt hatası: '+e2.message,'err'); return; }
+    auditLog(dok,'çoklu dosya ekleme',{ad:f.name}); n++;
+  }
+  if(n){ toast('✅ '+n+' dosya yüklendi — işçi birkaç sn içinde antetleyip Drive linklerini düşer.','ok');
+    fetch(DOK_AGENT+'/regen?dok='+encodeURIComponent(dok)).catch(()=>{});
+    await loadMFiles(); renderManagedPanel(!!document.getElementById('mPick')); }
+}
+async function mfDelete(id,dok){
+  if(!confirm('Bu bağlı doküman silinsin mi? (Drive kopyası da silinir)')) return;
+  const k=(MFILES[dok]||[]).find(x=>x.id===id);
+  try{
+    if(k&&k.drive_id){ const url=driveUrl(); if(url){ try{ await fetch(url,{method:'POST',body:JSON.stringify({secret:DRIVE_SECRET,action:'delete',id:k.drive_id})}); }catch(e){} } }
+    if(k&&k.storage_path){ try{ await sb.storage.from('kaynak').remove([k.storage_path]); }catch(e){} }
+    const {error}=await sb.from('managed_files').delete().eq('id',id); if(error) throw error;
+    auditLog(dok,'çoklu dosya silme',{ad:k&&k.ad});
+    await loadMFiles(); renderManagedPanel(!!document.getElementById('mPick')); toast('Silindi.','ok');
+  }catch(e){ toast('Hata: '+e.message,'err'); }
+}
+const _ACT_ICON={'ekleme':'🟢','güncelleme':'✏️','silme':'🗑','üretim':'📄','yeniden üretim':'🔄','çoklu dosya ekleme':'📁','çoklu dosya silme':'🗑'};
 async function managedHistory(dok){
   let rows=[];
   try{ const {data,error}=await sb.from('doc_audit').select('*').eq('dok_no',dok).order('at',{ascending:false}).limit(120); if(error) throw error; rows=data||[]; }
@@ -1118,15 +1165,24 @@ let _mEmbedBuf=null, _mEmbedName='';
 function onMEmbed(){ const f=document.getElementById('mEmbed').files[0]; if(!f) return; if(!/\.docx$/i.test(f.name)){ toast('Sadece .docx gömülebilir.','err'); return; } _mEmbedName=f.name; const r=new FileReader(); r.onload=()=>{ _mEmbedBuf=r.result; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Gömülecek (içerik korunur): <b>'+esc(f.name)+'</b> · <a href="javascript:clearMEmbed()">temizle</a>'; }; r.readAsArrayBuffer(f); }
 function clearMEmbed(){ _mEmbedBuf=null; _mEmbedName=''; const fi=document.getElementById('mEmbed'); if(fi) fi.value=''; const el=document.getElementById('mEmbedInfo'); if(el) el.innerHTML='Yüklemezsen sadece boş antet <b>iskeleti</b> üretilir (içerik gelmez). .docx yükle → içerik korunur.'; }
 function managedDataObj(r){ return {dok_no:r.dok_no||'',doc_no:r.dok_no||'',doc_adi:r.doc_adi||'',tip:r.tip||'',rev_no:r.rev_no||'',rev_tarihi:r.rev_tarihi||'',rev_sebebi:r.rev_sebebi||'',yayin_tarihi:r.yayin_tarihi||'',hazirlanma_tarihi:r.hazirlanma_tarihi||'',onay_tarihi:r.onay_tarihi||'',hazirlayan:r.hazirlayan||'',onaylayan:r.onaylayan||'',sube:r.sube||'',bugun:fmt(new Date().toISOString())}; }
+let MFILES={};   // dok_no -> managed_files satırları (çoklu doküman)
+async function loadMFiles(){
+  try{ const {data,error}=await sb.from('managed_files').select('*').order('ad');
+    if(error){ MFILES={}; return; }
+    MFILES={}; (data||[]).forEach(f=>{ (MFILES[f.dok_no]=MFILES[f.dok_no]||[]).push(f); });
+  }catch(e){ MFILES={}; }
+}
 async function loadManaged(silent){
   const tb=document.getElementById('mtbody');
   if(!silent) tb.innerHTML='<tr><td colspan="10" class="empty">Yükleniyor…</td></tr>';
-  const {data,error}=await sb.from('managed_docs').select('*').order('dok_no',{ascending:true});
+  const [{data,error}]=await Promise.all([sb.from('managed_docs').select('*').order('dok_no',{ascending:true}), loadMFiles()]);
   if(error){ if(!silent){ tb.innerHTML=`<tr><td colspan="10" class="empty">${/managed_docs/.test(error.message)?'managed_docs tablosu gerekli — supabase_managed_docs.sql çalıştırın.':'Hata: '+esc(error.message)}</td></tr>`; MANAGED=[]; } return; }
   const nw=data||[];
-  if(silent && JSON.stringify(nw)===JSON.stringify(MANAGED)) return;  // değişmedi → yeniden çizme (titreme yok)
+  if(silent && JSON.stringify(nw)===JSON.stringify(MANAGED) && JSON.stringify(MFILES)===_lastMF) return;  // değişmedi → yeniden çizme
+  _lastMF=JSON.stringify(MFILES);
   MANAGED=nw; renderManaged();
 }
+let _lastMF='';
 function renderManaged(){
   const q=(document.getElementById('mAra').value||'').trim().toLocaleLowerCase('tr');
   const rows=MANAGED.filter(r=>{ if(!q) return true; return [(r.dok_no||''),(r.doc_adi||''),(r.hazirlayan||''),(r.onaylayan||'')].join(' ').toLocaleLowerCase('tr').includes(q); });
@@ -1136,10 +1192,15 @@ function renderManaged(){
   tb.innerHTML=rows.map(r=>{
     const st=r.durum||'Yürürlükte';
     const stc=st==='Taslak'?'color:#b45309;background:#fef3c7':(st==='Arşiv'?'color:#475569;background:#e2e8f0':'color:#15803d;background:#dcfce7');
+    const kids=MFILES[r.dok_no]||[];
+    const acCell=kids.length
+      ?`<a href="javascript:mfOpen('${esc(r.dok_no)}')" title="Bu no altındaki dokümanlar">📁 ${kids.length} doküman</a>`
+      :(r.drive_view?`<a href="${esc(r.drive_view)}" target="_blank" rel="noopener">📄 aç</a>`:'<span style="color:#94a3b8">—</span>');
+    const manuel=(ADMIN&&r.origin==='manuel')?' <span title="LeanSys dışı — sıfırdan oluşturuldu (yalnız admin görür)" style="color:#7c3aed;font-weight:900">✦</span>':'';
     return `<tr${st==='Arşiv'?' style="opacity:.55"':''}>
-    <td><b>${esc(r.dok_no)}</b> <span style="font-size:.7em;padding:1px 7px;border-radius:999px;font-weight:700;${stc}">${esc(st)}</span></td><td>${esc(r.doc_adi)}</td><td>${esc(r.tip)}</td><td><span class="rev">${esc(r.rev_no)}</span></td><td>${esc(r.rev_tarihi)}</td>
-    <td>${esc(r.hazirlayan)}</td><td>${esc(r.onaylayan)}</td><td>${esc((r.fmt||'docx').toUpperCase())}</td>
-    <td>${r.drive_view?`<a href="${esc(r.drive_view)}" target="_blank" rel="noopener">📄 aç</a>`:'<span style="color:#94a3b8">—</span>'}</td>
+    <td><b>${esc(r.dok_no)}</b>${manuel} <span style="font-size:.7em;padding:1px 7px;border-radius:999px;font-weight:700;${stc}">${esc(st)}</span></td><td>${esc(r.doc_adi)}</td><td>${esc(r.tip)}</td><td><span class="rev">${esc(r.rev_no)}</span></td><td>${esc(r.rev_tarihi)}</td>
+    <td>${esc(r.hazirlayan)}</td><td>${esc(r.onaylayan)}</td><td>${esc((r.fmt||'docx').toUpperCase())}${kids.length?' 📁':''}</td>
+    <td>${acCell}</td>
     <td style="white-space:nowrap">
       <button class="rev-x" title="Düzenle" style="color:#1e3c72" onclick="managedEdit(${r.id})">✎</button>
       <button class="rev-x" title="Üret/Güncelle (Drive)" style="color:#15803d" onclick="managedGenerateById(${r.id})">⟳</button>
@@ -1149,6 +1210,44 @@ function renderManaged(){
 }
 function managedEdit(id){ const r=MANAGED.find(x=>x.id===id); if(r) openManagedPanel(Object.assign({},r),false,false); }
 function managedAddEmpty(){ openManagedPanel({fmt:'docx'},true,false); }
+// SIFIRDAN (LeanSys'te olmayan) doküman: numara "sıradaki kod"dan gelir — LeanSys + yönetilen
+// numaraları BİRLİKTE sayılır → çakışma olmaz. origin='manuel' (✦ işaretini yalnız admin görür).
+function managedNewSeq(){
+  if(!DOCS.length){ toast('Önce Doküman Listesi yüklensin.','err'); return; }
+  const idx={};
+  const feed=(no,tip)=>{ const p=parseCode(no); if(!p) return; const k=p.prefix;
+    if(!idx[k]) idx[k]={max:p.num,width:p.width,tip:tip||''};
+    else if(p.num>idx[k].max){ idx[k].max=p.num; idx[k].width=p.width; if(tip) idx[k].tip=tip; } };
+  DOCS.forEach(d=>feed(d.doc_no,d.tip));
+  MANAGED.forEach(m=>feed(m.dok_no,m.tip));   // manuel oluşturulanlar da sayılır → aynı no iki kez verilmez
+  const series=Object.entries(idx).map(([pre,e])=>({pre:pre,tip:e.tip,next:pre+String(e.max+1).padStart(e.width,'0')}))
+    .sort((a,b)=>a.pre.localeCompare(b.pre,'tr'));
+  let bg=document.getElementById('seqBg');
+  if(!bg){ bg=document.createElement('div'); bg.id='seqBg';
+    bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    bg.onclick=e=>{ if(e.target===bg) bg.remove(); };
+    document.body.appendChild(bg); }
+  const rowH=s=>`<div onclick="seqPick('${esc(s.next)}')" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background=''"
+      style="display:flex;gap:10px;align-items:center;padding:8px 14px;border-bottom:1px solid #eef1f6;cursor:pointer">
+      <b style="min-width:90px">${esc(s.pre)}</b><span style="flex:1;color:#64748b;font-size:.85em">${esc(s.tip)}</span>
+      <span style="background:#dcfce7;color:#15803d;font-weight:700;padding:2px 10px;border-radius:999px;font-size:.85em">${esc(s.next)}</span></div>`;
+  bg.innerHTML=`<div style="background:#fff;border-radius:12px;width:560px;max-width:94vw;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center">🆕 Yeni Doküman — seri seç, sıradaki no verilir<span style="flex:1"></span>
+      <button onclick="document.getElementById('seqBg').remove()" style="background:none;border:none;color:#fff;font-size:1.2em;cursor:pointer">✕</button></div>
+    <div style="padding:10px 14px"><input id="seqSearch" placeholder="🔍 seri ara (FR, PR, TL…)" oninput="seqFilter()" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px"></div>
+    <div id="seqList" style="overflow:auto">${series.map(rowH).join('')}</div></div>`;
+  window._seqSeries=series; window._seqRowH=rowH;
+}
+function seqFilter(){
+  const q=(document.getElementById('seqSearch').value||'').trim().toLocaleLowerCase('tr');
+  const list=window._seqSeries.filter(s=>!q||(s.pre+' '+(s.tip||'')).toLocaleLowerCase('tr').includes(q));
+  document.getElementById('seqList').innerHTML=list.map(window._seqRowH).join('')||'<div style="padding:16px;text-align:center;color:#94a3b8">Eşleşme yok</div>';
+}
+function seqPick(no){
+  const bg=document.getElementById('seqBg'); if(bg) bg.remove();
+  openManagedPanel({fmt:'docx',dok_no:no,origin:'manuel',durum:'Taslak'},true,false);
+  toast('🆕 '+no+' verildi (LeanSys dışı — ✦). Alanları doldur, içerik dosyasını Çoklu Doküman\'dan yükle, Kaydet & Üret.','ok');
+}
 function managedAddFromDoc(){ if(!DOCS.length){ toast('Önce Doküman Listesi yüklensin.','err'); return; } openManagedPanel({fmt:'docx'},true,true); }
 // TEK TUŞ: LeanSys dokümanını yönetilene ekle + üretimi tetikle (ek işlem yok).
 // Kaynak dosyayı ve içeriği MERKEZİ İŞÇİ LeanSys ağından kendisi bulur (pick_best);
@@ -1231,6 +1330,19 @@ function renderManagedPanel(withSearch){
     <button class="tpl-btn" style="width:auto" onclick="managedAddField()">➕ Yeni Metadata Alanı</button>
     <span style="font-size:.8em;color:var(--muted)"><b>Basit akış:</b> alanı ekle → değerini yaz → <b>Kaydet &amp; Üret</b> → seçtiğin yerde (antet / alt blok) kendiliğinden görünür. Elle konum istersen "{{etiket}} konumu"nu seç ve çipi şablona sürükle.</span>
   </div>`;
+  // ---- ÇOKLU DOKÜMAN: aynı no altında birden çok içerik dosyası ----
+  {
+    const _kids=MFILES[(r.dok_no||'').trim()]||[];
+    h+=`<div style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px">
+      <div style="font-weight:700;font-size:.9em;margin-bottom:4px">📁 Çoklu Doküman <span style="font-weight:400;color:var(--muted);font-size:.85em">— aynı no altında birden çok içerik; hepsi AYNI metadata/antetle üretilir, metadata değişince tümü yenilenir</span></div>
+      <input type="file" multiple accept=".docx,.xlsx" onchange="mfUpload(this.files);this.value=''" style="font-size:.85em;margin:4px 0">
+      ${_kids.length?_kids.map(k=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed #e3e8ef;font-size:.88em">
+        <span>${k.fmt==='xlsx'?'📊':'📄'}</span><b style="flex:1">${esc(k.ad||'')}</b>
+        ${k.drive_view?`<a href="${esc(k.drive_view)}" target="_blank" rel="noopener">aç</a>`:'<span style="color:#b45309;font-size:.85em">⏳ üretiliyor…</span>'}
+        <button class="rev-x" title="Sil" onclick="mfDelete(${k.id},'${esc(r.dok_no)}')">✕</button></div>`).join('')
+      :'<div style="font-size:.8em;color:var(--muted)">Henüz bağlı dosya yok — birden çok .docx/.xlsx seçebilirsin.</div>'}
+    </div>`;
+  }
   h+=`<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
     <button class="tpl-btn go" style="width:auto" onclick="managedSave(true)">💾 Kaydet & Üret (Drive)</button>
     <button class="tpl-btn" style="width:auto" onclick="managedSave(false)">Kaydet</button>
@@ -1255,7 +1367,7 @@ function managedPickDoc(no){
   _mRec.fmt=/xls/i.test(pick.dosya_uzanti||'')?'xlsx':'docx';
   renderManagedPanel(false);
 }
-function managedPayload(r){ const o={fmt:r.fmt||'docx',durum:r.durum||'Yürürlükte',updated_at:new Date().toISOString()}; MANAGED_FIELDS.forEach(f=>o[f[0]]=r[f[0]]||null); if(r.drive_id!=null)o.drive_id=r.drive_id; if(r.drive_view!=null)o.drive_view=r.drive_view; if(MANAGED_EXTRA.length||Object.keys(r.extra||{}).length)o.extra=r.extra||{}; return o; }
+function managedPayload(r){ const o={fmt:r.fmt||'docx',durum:r.durum||'Yürürlükte',updated_at:new Date().toISOString()}; MANAGED_FIELDS.forEach(f=>o[f[0]]=r[f[0]]||null); if(r.origin)o.origin=r.origin; if(r.drive_id!=null)o.drive_id=r.drive_id; if(r.drive_view!=null)o.drive_view=r.drive_view; if(MANAGED_EXTRA.length||Object.keys(r.extra||{}).length)o.extra=r.extra||{}; return o; }
 async function managedSave(gen){
   const msg=document.getElementById('mEditMsg'); _mRec.fmt=(document.querySelector('input[name=mFmt]:checked')||{}).value||'docx';
   const wasNew=_mNew, before=wasNew?{}:(MANAGED.find(x=>x.id===_mRec.id)||{});
