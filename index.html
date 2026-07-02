@@ -938,7 +938,15 @@ async function renderCellPicker(buf){
   for(let c=1;c<=maxC;c++) h+=`<td style="background:#f1f5f9;color:#64748b;text-align:center;padding:2px 6px;border:1px solid #e2e8f0;font-weight:600">${_colL(c)}</td>`;
   h+='</tr>';
   const bs=s=>s&&s.style?'1.6px solid #334155':'1px solid #f1f5f9';   // gerçek form çizgisi vs silik ızgara
-  for(let r=1;r<=maxR;r++){
+  // içeriğin gerçekten bittiği satır (sonrasını çizme; oraya üretim-önizleme blokları gelir)
+  let lastText=1;
+  for(let r=1;r<=maxR;r++){ for(let c=1;c<=maxC;c++){ if(_cellText(ws.getRow(r).getCell(c).value)){ lastText=r; break; } } }
+  const drawR=Math.min(maxR,lastText+1);
+  // ÜST ŞERİT: antete ekleme (tıklanabilir)
+  h+=`<tr><td></td><td colspan="${maxC}" onclick="pickAreaDone('antet')" onmouseover="this.style.outline='2px solid #1d4ed8'" onmouseout="this.style.outline=''"
+      style="background:#dbeafe;color:#1e40af;font-weight:700;padding:6px 10px;border:1.6px dashed #1d4ed8;cursor:pointer;text-align:center">
+      ➕ ANTETE EKLE — {{${esc(_pickKey)}}} antetin sağ bloğuna satır olarak basılır (hücre seçmek yerine buna tıkla)</td></tr>`;
+  for(let r=1;r<=drawR;r++){
     h+=`<tr><td style="background:#f1f5f9;color:#64748b;text-align:center;padding:2px 6px;border:1px solid #e2e8f0;font-weight:600">${r}</td>`;
     for(let c=1;c<=maxC;c++){
       if(skip[r+'_'+c]) continue;
@@ -952,8 +960,23 @@ async function renderCellPicker(buf){
     }
     h+='</tr>';
   }
+  // ALT ÖNİZLEME: üretimde otomatik eklenen Hazırlayan/Onaylayan bloğu + "altına ekle" şeridi
+  const _haz=esc((_mRec&&_mRec.hazirlayan)||'Hazırlayan adı'), _ona=esc((_mRec&&_mRec.onaylayan)||'Onaylayan adı');
+  const _half=Math.max(1,Math.floor(maxC/2));
+  h+=`<tr><td></td><td colspan="${maxC}" style="padding:4px 10px;color:#64748b;font-size:.85em;background:#f8fafc;border:1px dashed #cbd5e1;text-align:center">⬇ üretimde dokümanın sonuna OTOMATİK eklenen alt blok (önizleme)</td></tr>`;
+  h+=`<tr><td></td><td colspan="${_half}" style="background:#f2f4f8;font-weight:700;text-align:center;border:1.6px solid #334155;padding:3px">Hazırlayan</td><td colspan="${maxC-_half}" style="background:#f2f4f8;font-weight:700;text-align:center;border:1.6px solid #334155;padding:3px">Onaylayan</td></tr>`;
+  h+=`<tr><td></td><td colspan="${_half}" style="text-align:center;border:1.6px solid #334155;padding:3px">${_haz}</td><td colspan="${maxC-_half}" style="text-align:center;border:1.6px solid #334155;padding:3px">${_ona}</td></tr>`;
+  h+=`<tr><td></td><td colspan="${maxC}" onclick="pickAreaDone('alt')" onmouseover="this.style.outline='2px solid #15803d'" onmouseout="this.style.outline=''"
+      style="background:#dcfce7;color:#15803d;font-weight:700;padding:6px 10px;border:1.6px dashed #15803d;cursor:pointer;text-align:center">
+      ➕ BU BLOĞUN ALTINA EKLE — "${esc(_pickKey)} | değer" satırı olarak basılır</td></tr>`;
   h+='</table></div></div>';
   bg.innerHTML=h;
+}
+async function pickAreaDone(mode){
+  const bg=document.getElementById('cellPickBg'); if(bg) bg.remove();
+  if(!_pickKey) return;
+  await managedSetFieldPos(_pickKey, mode);
+  toast(mode==='antet'?'✅ Antete eklenecek — değeri yaz, Kaydet & Üret.':'✅ Hazırlayan/Onaylayan altına eklenecek — değeri yaz, Kaydet & Üret.','ok');
 }
 function pickCellTry(addr,hasText,inAntet){
   if(inAntet){ if(!confirm(addr+' üst antet bölgesinde — bu bölge üretimde Sanifoam antetiyle DEĞİŞTİRİLİR, seçim kaybolur. Yine de seçilsin mi?')) return; }
