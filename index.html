@@ -908,14 +908,71 @@ async function saveManagedExtra(){
   if(error) throw error;
 }
 function slugTag(s){ const m={'ç':'c','ğ':'g','ı':'i','ö':'o','ş':'s','ü':'u'}; return (s||'').toLocaleLowerCase('tr').replace(/[çğıöşü]/g,c=>m[c]||c).replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,30); }
-async function managedAddField(){
-  const label=prompt('Yeni metadata alanının adı (ör: Departman, Süreç Sahibi):'); if(!label||!label.trim()) return;
-  const key=slugTag(label);
-  if(!key){ toast('Geçersiz ad.','err'); return; }
+// Hazır alan önerileri: src = LeanSys documents kolonu (eklenince değer otomatik dolar)
+const FIELD_SUGGESTIONS=[
+  {key:'departman',            label:'Departman',             hint:'dokümanın ait olduğu bölüm'},
+  {key:'surec_sahibi',         label:'Süreç Sahibi',          hint:'sürecin sorumlusu',                    src:'proses_sorumlusu'},
+  {key:'aciklama',             label:'Açıklama',              hint:'doküman açıklaması',                   src:'aciklama'},
+  {key:'arsiv_yeri',           label:'Arşiv Yeri',            hint:'nerede saklanır',                      src:'arsiv_yeri'},
+  {key:'arsiv_sorumlusu',      label:'Arşiv Sorumlusu',       hint:'saklamadan sorumlu kişi',              src:'arsiv_sorumlusu'},
+  {key:'arsiv_suresi',         label:'Arşiv Süresi (Yıl)',    hint:'saklama süresi',                       src:'arsiv_suresi'},
+  {key:'imha_yetkilisi',       label:'İmha Yetkilisi',        hint:'imhaya yetkili kişi',                  src:'imha_yetkilisi'},
+  {key:'elektronik_dagitim',   label:'Elektronik Dağıtım',    hint:'dijital dağıtım listesi',              src:'elektronik_dagitim'},
+  {key:'matbu_dagitim',        label:'Matbu Dağıtım',         hint:'basılı kopya dağıtım listesi',         src:'matbu_dagitim'},
+  {key:'egitim_gerekli',       label:'Eğitim Gerekli',        hint:'Evet / Hayır',                          src:'egitim_gerekli'},
+  {key:'gecerlilik_tarihi',    label:'Geçerlilik Tarihi',     hint:'dış kaynaklı doküman/sertifika süresi'},
+  {key:'standart_ref',         label:'Standart Referansı',    hint:'ISO 9001 / IATF 16949 maddesi'},
+  {key:'musteri',              label:'Müşteri',               hint:'müşteriye özel doküman ise'},
+  {key:'gizlilik',             label:'Gizlilik Sınıfı',       hint:'Genel / Hizmete Özel / Gizli'},
+  {key:'kontrollu_kopya_no',   label:'Kontrollü Kopya No',    hint:'basılı kopya takibi'},
+];
+function managedAddField(){
+  let bg=document.getElementById('fieldPickBg');
+  if(!bg){ bg=document.createElement('div'); bg.id='fieldPickBg';
+    bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    bg.onclick=e=>{ if(e.target===bg) bg.remove(); };
+    document.body.appendChild(bg); }
+  const taken=new Set([...MANAGED_FIELDS.map(f=>f[0]),...MANAGED_EXTRA.map(f=>f.key)]);
+  const cards=FIELD_SUGGESTIONS.filter(s=>!taken.has(s.key)).map(s=>
+    `<div onclick="addFieldDef('${s.key}','${esc(s.label)}','${s.src||''}')" onmouseover="this.style.borderColor='#1e3c72'" onmouseout="this.style.borderColor='#e3e8ef'"
+       style="border:1.5px solid #e3e8ef;border-radius:10px;padding:10px 12px;cursor:pointer;background:#fff">
+       <div style="font-weight:700;font-size:.92em;display:flex;align-items:center;gap:6px">${esc(s.label)}
+         ${s.src?'<span style="font-size:.7em;background:#dcfce7;color:#15803d;padding:1px 7px;border-radius:999px;font-weight:700">LeanSys\'ten otomatik dolar</span>':''}</div>
+       <div style="font-size:.8em;color:#64748b;margin-top:2px">${esc(s.hint)} · <code style="font-size:.9em">{{${s.key}}}</code></div></div>`).join('');
+  bg.innerHTML=`<div style="background:#fff;border-radius:12px;width:620px;max-width:94vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center">➕ Metadata Alanı Ekle<span style="flex:1"></span>
+      <button onclick="document.getElementById('fieldPickBg').remove()" style="background:none;border:none;color:#fff;font-size:1.2em;cursor:pointer">✕</button></div>
+    <div style="overflow:auto;padding:14px">
+      ${cards?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${cards}</div>`:'<div style="color:#94a3b8;text-align:center;padding:10px">Hazır önerilerin hepsi zaten ekli.</div>'}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e3e8ef">
+        <div style="font-size:.85em;font-weight:600;margin-bottom:6px">✏️ Listede yok mu? Kendin yaz:</div>
+        <div style="display:flex;gap:8px">
+          <input id="fieldCustomName" placeholder="ör: Kalibrasyon No" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px" onkeydown="if(event.key==='Enter')addFieldCustom()">
+          <button class="tpl-btn go" style="width:auto;margin:0" onclick="addFieldCustom()">Ekle</button>
+        </div></div>
+    </div></div>`;
+}
+async function addFieldDef(key,label,src){
   if(MANAGED_FIELDS.some(f=>f[0]===key)||MANAGED_EXTRA.some(f=>f.key===key)){ toast('Bu alan zaten var: {{'+key+'}}','err'); return; }
-  MANAGED_EXTRA.push({key:key,label:label.trim(),pos:'antet'});
-  try{ await saveManagedExtra(); toast('✅ "'+label.trim()+'" eklendi. Değerini yaz → Kaydet & Üret → antette kendiliğinden görünür (yerini seçiciden değiştirebilirsin).','ok'); renderManagedPanel(!!document.getElementById('mPick')); }
-  catch(e){ MANAGED_EXTRA.pop(); toast('Hata: '+e.message+' — Supabase\'de supabase_app_flags.sql + extra kolonu SQL\'i çalıştırılmalı.','err'); }
+  MANAGED_EXTRA.push({key:key,label:label,pos:'antet'});
+  try{
+    await saveManagedExtra();
+    // LeanSys kaynaklıysa bu dokümanın değerini hemen doldur
+    if(src&&_mRec&&(_mRec.dok_no||'').trim()){
+      const no=_mRec.dok_no.trim(); let pick=null;
+      for(const d of DOCS){ if(d.doc_no===no&&isGuncel(d)){ pick=d; break; } }
+      if(!pick) for(const d of DOCS){ if(d.doc_no===no){ pick=d; break; } }
+      if(pick){ const v=tplDataFromDoc(pick)[src]||''; if(v) (_mRec.extra=_mRec.extra||{})[key]=v; }
+    }
+    renderManagedPanel(!!document.getElementById('mPick'));
+    managedAddField();   // pencereyi tazele (eklenen listeden düşer) — birden fazla eklenebilsin
+    toast('✅ "'+label+'" eklendi'+(src?' — değeri LeanSys\'ten dolduruldu':'')+'. Konumunu alan satırından seçebilirsin.','ok');
+  }catch(e){ MANAGED_EXTRA.pop(); toast('Hata: '+e.message+' — supabase_dms.sql çalıştırılmalı.','err'); }
+}
+async function addFieldCustom(){
+  const inp=document.getElementById('fieldCustomName'); const label=(inp&&inp.value||'').trim(); if(!label) return;
+  const key=slugTag(label); if(!key){ toast('Geçersiz ad.','err'); return; }
+  await addFieldDef(key,label,'');
 }
 function managedFillFromDoc(key,field){
   const no=((_mRec&&_mRec.dok_no)||'').trim(); if(!no||!field) return;
