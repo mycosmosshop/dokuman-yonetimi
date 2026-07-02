@@ -871,6 +871,16 @@ async function managedAddField(){
   try{ await saveManagedExtra(); toast('✅ "'+label.trim()+'" eklendi. Değerini yaz → Kaydet & Üret → antette kendiliğinden görünür (yerini seçiciden değiştirebilirsin).','ok'); renderManagedPanel(!!document.getElementById('mPick')); }
   catch(e){ MANAGED_EXTRA.pop(); toast('Hata: '+e.message+' — Supabase\'de supabase_app_flags.sql + extra kolonu SQL\'i çalıştırılmalı.','err'); }
 }
+function managedFillFromDoc(key,field){
+  const no=((_mRec&&_mRec.dok_no)||'').trim(); if(!no||!field) return;
+  let pick=null; for(const d of DOCS){ if(d.doc_no===no&&isGuncel(d)){ pick=d; break; } }
+  if(!pick) for(const d of DOCS){ if(d.doc_no===no){ pick=d; break; } }
+  if(!pick){ toast('LeanSys kaydı bulunamadı: '+no,'err'); return; }
+  const v=tplDataFromDoc(pick)[field]||'';
+  (_mRec.extra=_mRec.extra||{})[key]=v;
+  renderManagedPanel(!!document.getElementById('mPick'));
+  toast(v?('⤵ Dolduruldu: '+v):'Bu alan LeanSys\'te boş.','ok');
+}
 async function managedSetFieldPos(key,pos){
   const f=MANAGED_EXTRA.find(x=>x.key===key); if(!f) return; const old=f.pos; f.pos=pos;
   try{ await saveManagedExtra(); renderManagedPanel(!!document.getElementById('mPick'));
@@ -1073,6 +1083,13 @@ function renderManagedPanel(withSearch){
   h+='</div>';
   // ---- ÖZEL METADATA ALANLARI (paylaşımlı tanım: app_flags key='managed_fields'; değerler kayıtta extra jsonb) ----
   if(MANAGED_EXTRA.length){
+    // Bu dokümanın LeanSys verisi (özel alan değerini elle yazmak yerine buradan seçmek için)
+    let _ltd=null;
+    { const _no=(r.dok_no||'').trim();
+      if(_no&&DOCS.length){ let pick=null;
+        for(const d of DOCS){ if(d.doc_no===_no&&isGuncel(d)){ pick=d; break; } }
+        if(!pick) for(const d of DOCS){ if(d.doc_no===_no){ pick=d; break; } }
+        if(pick) _ltd=tplDataFromDoc(pick); } }
     h+='<div class="grid" style="margin-top:10px">';
     MANAGED_EXTRA.forEach(f=>{ const v=((r.extra||{})[f.key])||''; const p=f.pos||'antet';
       h+=`<div class="fld"><span class="k" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${esc(f.label)}
@@ -1085,7 +1102,13 @@ function renderManagedPanel(withSearch){
           ?`<button class="tpl-btn" style="width:auto;padding:2px 8px;font-size:.8em;margin:0" onclick="managedPickCell('${esc(f.key)}')" title="Şablonu ekranda gör, hücreye tıkla → değer üretimde oraya basılır">📍 Şablonda seç</button>${(r.extra&&r.extra._pos&&r.extra._pos[f.key])?`<span style="font-size:.8em;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:999px;font-weight:600">📍 ${esc(r.extra._pos[f.key])}</span>`:''}`
           :`<code class="tagchip" draggable="true" title="Word: çipi kopyala/sürükle → şablona yapıştır" style="font-size:.85em">{{${f.key}}}</code>`):''}
         <a href="javascript:managedDelField('${esc(f.key)}')" title="Alan tanımını kaldır" style="color:#b91c1c;text-decoration:none;font-size:.85em">✕</a></span>
-        <input value="${esc(v)}" oninput="(_mRec.extra=_mRec.extra||{})['${f.key}']=this.value" placeholder="değer gir — boşsa dokümana basılmaz" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
+        <div style="display:flex;gap:6px;align-items:center">
+          <input value="${esc(v)}" oninput="(_mRec.extra=_mRec.extra||{})['${f.key}']=this.value" placeholder="değer gir — boşsa dokümana basılmaz" style="flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em">
+          ${_ltd?`<select onchange="if(this.value){managedFillFromDoc('${esc(f.key)}',this.value);}this.selectedIndex=0" title="Değeri elle yazmak yerine bu dokümanın LeanSys verisinden seç" style="max-width:170px;padding:6px;border:1px solid var(--line);border-radius:7px;font-size:.8em;color:#1e3c72">
+            <option value="">⤵ LeanSys'ten…</option>
+            ${TPL_FIELDS.filter(t=>_ltd[t[0]]).map(t=>`<option value="${t[0]}">${esc(t[1])}: ${esc(String(_ltd[t[0]]).slice(0,28))}</option>`).join('')}
+          </select>`:''}
+        </div></div>`; });
     h+='</div>';
   }
   h+=`<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
