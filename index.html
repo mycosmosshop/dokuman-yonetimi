@@ -874,8 +874,78 @@ async function managedAddField(){
 async function managedSetFieldPos(key,pos){
   const f=MANAGED_EXTRA.find(x=>x.key===key); if(!f) return; const old=f.pos; f.pos=pos;
   try{ await saveManagedExtra(); renderManagedPanel(!!document.getElementById('mPick'));
-    toast('Konum: '+(pos==='antet'?'Antet (üst bilgi)':pos==='alt'?'Alt blok':'{{etiket}} — çipi şablona sürükle'),'ok'); }
+    toast('Konum: '+(pos==='antet'?'Antet (üst bilgi)':pos==='alt'?'Alt blok':'şablonda seç → 📍 butonu'),'ok'); }
   catch(e){ f.pos=old; toast('Hata: '+e.message,'err'); }
+}
+// ---- ŞABLONDA GÖRSEL KONUM SEÇİMİ (Excel): kaynak dosya ekranda ızgara olarak açılır,
+// ---- hücreye tıkla → adres kayda yazılır; üretimde değer o hücreye basılır. LeanSys'e YAZILMAZ.
+let _pickKey=null;
+function _colL(n){ let s=''; while(n>0){ s=String.fromCharCode(65+(n-1)%26)+s; n=Math.floor((n-1)/26);} return s; }
+function _colN(s){ let n=0; for(const ch of s) n=n*26+(ch.charCodeAt(0)-64); return n; }
+async function managedPickCell(key){
+  const dok=((_mRec&&_mRec.dok_no)||'').trim(); if(!dok){ toast('Önce Doküman No gir.','err'); return; }
+  _pickKey=key; toast('Şablon yükleniyor…');
+  try{
+    const r=await fetch(DOK_AGENT+'/file?dok='+encodeURIComponent(dok));
+    const ct=r.headers.get('Content-Type')||'';
+    if(ct.indexOf('json')>=0){ const j=await r.json(); throw new Error(j.error||'kaynak yok'); }
+    if(!r.ok) throw new Error('ajan yanıtı: '+r.status);
+    renderCellPicker(await r.arrayBuffer());
+  }catch(e){
+    toast('Ajan üzerinden alınamadı ('+(e.message||e)+') — .xlsx dosyasını elle seç.','err');
+    const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
+    inp.onchange=async()=>{ if(inp.files[0]) renderCellPicker(await inp.files[0].arrayBuffer()); };
+    inp.click();
+  }
+}
+function _cellText(v){
+  if(v==null) return '';
+  if(typeof v==='object'){ if(v.richText) return v.richText.map(t=>t.text).join(''); if(v.result!=null) return String(v.result); if(v.text) return String(v.text); if(v instanceof Date) return v.toLocaleDateString('tr-TR'); return ''; }
+  return String(v);
+}
+async function renderCellPicker(buf){
+  let ws;
+  try{ const wb=new ExcelJS.Workbook(); await wb.xlsx.load(buf); ws=wb.worksheets[0]; if(!ws) throw new Error('sayfa yok'); }
+  catch(e){ toast('Excel okunamadı: '+e.message,'err'); return; }
+  const maxR=Math.min(ws.rowCount||60,90), maxC=Math.min(ws.columnCount||20,30);
+  const merged={}, skip={};
+  (ws.model.merges||[]).forEach(m=>{ const mm=/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(m); if(!mm) return;
+    const c1=_colN(mm[1]),r1=+mm[2],c2=_colN(mm[3]),r2=+mm[4];
+    merged[r1+'_'+c1]={rs:r2-r1+1,cs:c2-c1+1};
+    for(let rr=r1;rr<=r2;rr++)for(let cc=c1;cc<=c2;cc++){ if(rr!==r1||cc!==c1) skip[rr+'_'+cc]=1; } });
+  let bg=document.getElementById('cellPickBg');
+  if(!bg){ bg=document.createElement('div'); bg.id='cellPickBg';
+    bg.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+    document.body.appendChild(bg); }
+  let h=`<div style="background:#fff;border-radius:12px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+    <div style="background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff;padding:12px 16px;font-weight:700;display:flex;align-items:center;gap:10px">
+      📍 Konum seç — <code style="background:rgba(255,255,255,.2);padding:2px 8px;border-radius:6px">{{${esc(_pickKey)}}}</code>
+      <span style="font-weight:400;font-size:.85em;opacity:.9">değerin basılacağı hücreye tıkla</span>
+      <span style="flex:1"></span><button onclick="document.getElementById('cellPickBg').remove()" style="background:none;border:none;color:#fff;font-size:1.3em;cursor:pointer">✕</button></div>
+    <div style="overflow:auto;padding:10px"><table style="border-collapse:collapse;font-size:11px;font-family:Calibri,Arial">`;
+  h+='<tr><td style="background:#f1f5f9"></td>';
+  for(let c=1;c<=maxC;c++) h+=`<td style="background:#f1f5f9;color:#64748b;text-align:center;padding:2px 6px;border:1px solid #e2e8f0;font-weight:600">${_colL(c)}</td>`;
+  h+='</tr>';
+  for(let r=1;r<=maxR;r++){
+    h+=`<tr><td style="background:#f1f5f9;color:#64748b;text-align:center;padding:2px 6px;border:1px solid #e2e8f0;font-weight:600">${r}</td>`;
+    for(let c=1;c<=maxC;c++){
+      if(skip[r+'_'+c]) continue;
+      const m=merged[r+'_'+c]; const cell=ws.getRow(r).getCell(c);
+      const t=_cellText(cell.value); const bold=cell.font&&cell.font.bold;
+      h+=`<td ${m?`rowspan="${m.rs}" colspan="${m.cs}"`:''} onclick="pickCellDone('${_colL(c)}${r}')" onmouseover="this.style.outline='2px solid #2563eb'" onmouseout="this.style.outline=''"
+        style="border:1px solid #cbd5e1;padding:2px 6px;min-width:28px;max-width:260px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:crosshair;${bold?'font-weight:700;':''}${t?'':'background:#fafafa;'}" title="${_colL(c)}${r}">${esc(t)}</td>`;
+    }
+    h+='</tr>';
+  }
+  h+='</table></div></div>';
+  bg.innerHTML=h;
+}
+function pickCellDone(addr){
+  const bg=document.getElementById('cellPickBg'); if(bg) bg.remove();
+  if(!_mRec||!_pickKey) return;
+  _mRec.extra=_mRec.extra||{}; _mRec.extra._pos=_mRec.extra._pos||{}; _mRec.extra._pos[_pickKey]=addr;
+  renderManagedPanel(!!document.getElementById('mPick'));
+  toast('📍 '+addr+' seçildi — Kaydet & Üret ile değer oraya basılır.','ok');
 }
 async function managedDelField(key){
   if(!confirm('{{'+key+'}} alan tanımı kaldırılsın mı? (Kayıtlardaki girilmiş değerler silinmez, sadece form/üretimden çıkar.)')) return;
@@ -968,7 +1038,9 @@ function renderManagedPanel(withSearch){
           <option value="alt" ${p==='alt'?'selected':''}>→ Alt blok (Hazırlayan altı)</option>
           <option value="etiket" ${p==='etiket'?'selected':''}>→ {{etiket}} konumu (elle)</option>
         </select>
-        ${p==='etiket'?`<code class="tagchip" draggable="true" title="sürükle → şablona bırak · tıkla → kopyala" style="font-size:.85em">{{${f.key}}}</code>`:''}
+        ${p==='etiket'?((r.fmt||'docx')==='xlsx'
+          ?`<button class="tpl-btn" style="width:auto;padding:2px 8px;font-size:.8em;margin:0" onclick="managedPickCell('${esc(f.key)}')" title="Şablonu ekranda gör, hücreye tıkla → değer üretimde oraya basılır">📍 Şablonda seç</button>${(r.extra&&r.extra._pos&&r.extra._pos[f.key])?`<span style="font-size:.8em;background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:999px;font-weight:600">📍 ${esc(r.extra._pos[f.key])}</span>`:''}`
+          :`<code class="tagchip" draggable="true" title="Word: çipi kopyala/sürükle → şablona yapıştır" style="font-size:.85em">{{${f.key}}}</code>`):''}
         <a href="javascript:managedDelField('${esc(f.key)}')" title="Alan tanımını kaldır" style="color:#b91c1c;text-decoration:none;font-size:.85em">✕</a></span>
         <input value="${esc(v)}" oninput="(_mRec.extra=_mRec.extra||{})['${f.key}']=this.value" placeholder="değer gir — boşsa dokümana basılmaz" style="width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:.9em"></div>`; });
     h+='</div>';
