@@ -185,7 +185,6 @@
 <div class="wrap">
   <div class="tabs">
     <button class="tab on" id="tabBtnList" onclick="switchTab('list')">📋 Doküman Listesi</button>
-    <button class="tab" id="tabBtnTpl" onclick="switchTab('tpl')">🧩 Şablonlar</button>
     <button class="tab" id="tabBtnManaged" onclick="switchTab('managed')">📚 Yönetilen Dokümanlar</button>
   </div>
   <div id="tabList">
@@ -207,52 +206,9 @@
   </div>
   </div><!-- /#tabList -->
 
-  <div id="tabTemplates" class="hidden">
-    <div class="tpl-grid">
-      <div class="tpl-card">
-        <h3>1) Şablon</h3>
-        <p class="tpl-hint"><b>Yerleşik antet</b> — yükleme gerekmez. Seçili dokümanın alanlarıyla standart doküman anteti üretir.</p>
-        <div class="tpl-src">
-          <label><input type="radio" name="tplFmt" value="docx" checked onchange="updateTplGenBtn()"> Word antet (.docx)</label>
-          <label><input type="radio" name="tplFmt" value="xlsx" onchange="updateTplGenBtn()"> Excel antet (.xlsx)</label>
-        </div>
-        <div style="margin-top:6px"><a href="javascript:tplSampleDownload()" style="font-size:.82em">⬇ Örnek şablon indir (<code>{{etiketli}}</code>)</a></div>
-        <div class="tpl-or">— veya kendi şablonunu yükle —</div>
-        <p class="tpl-hint">Word/Excel içine <code>{{dok_no}}</code> gibi etiketler koy; seçilirse bu kullanılır.</p>
-        <input type="file" id="tplFile" accept=".docx,.xlsx" onchange="onTplFile()">
-        <div id="tplFileInfo" class="tpl-muted">Henüz dosya seçilmedi (yerleşik antet kullanılır).</div>
-        <button class="tpl-btn" id="tplClearFile" onclick="clearTplFile()" style="display:none;margin-top:6px;padding:6px 10px;font-size:.8em">✕ Yüklenen şablonu kaldır</button>
-        <div class="tpl-or">— veya gerçek dokümana antet GÖM —</div>
-        <p class="tpl-hint">İlgili LeanSys dokümanının <b>.docx</b> dosyasını yükle; Sanifoam üst bilgisi içine gömülür, içerik korunur (M-Files mantığı).</p>
-        <input type="file" id="tplEmbed" accept=".docx" onchange="onTplEmbed()">
-        <div id="tplEmbedInfo" class="tpl-muted"></div>
-        <button class="tpl-btn" id="tplEmbedClear" onclick="clearTplEmbed()" style="display:none;margin-top:6px;padding:6px 10px;font-size:.8em">✕ Gömülecek dosyayı kaldır</button>
-        <details class="tpl-tags"><summary>Kullanılabilir etiketler</summary>
-          <div id="tplTagList"></div>
-        </details>
-      </div>
-      <div class="tpl-card">
-        <h3>2) Veri kaynağı</h3>
-        <div class="tpl-src">
-          <label><input type="radio" name="tplSrc" value="doc" checked onchange="onTplSrc()"> LeanSys dokümanından çek</label>
-          <label><input type="radio" name="tplSrc" value="manual" onchange="onTplSrc()"> Elle gir</label>
-        </div>
-        <div id="tplDocPick">
-          <input id="tplDocSearch" placeholder="🔍 Doküman no / ad ara…" oninput="tplDocSuggest()" autocomplete="off">
-          <div id="tplDocResults" class="tpl-results"></div>
-        </div>
-        <div id="tplFields" class="tpl-fields"></div>
-      </div>
-      <div class="tpl-card">
-        <h3>3) Oluştur</h3>
-        <p class="tpl-hint">Etiketler güncel veriyle doldurulur. <b>İçerik için</b> dokümanın <b>.docx</b>'ini (sol kart) "antet GÖM" kutusuna yükle — yoksa yalnızca <b>boş antet</b> üretilir.</p>
-        <button class="tpl-btn go" id="tplGenBtn" onclick="tplGenerate()" disabled>⬇ Oluştur ve indir</button>
-        <button class="tpl-btn" id="tplDriveBtn" onclick="tplSaveDrive()" disabled>☁ Drive'a kaydet</button>
-        <div id="tplDriveStatus" class="tpl-muted"></div>
-        <div id="tplMsg" class="tpl-muted"></div>
-      </div>
-    </div>
-  </div><!-- /#tabTemplates -->
+  <!-- Şablonlar sekmesi KALDIRILDI: antet üretimi Yönetilen Dokümanlar'da tam otomatik.
+       Şablon motoru (buildAntetDocx/Xlsx, tplDataFromDoc) detay modalındaki
+       '📋 Antetli oluştur' butonu için korunuyor. -->
 
   <div id="tabManaged" class="hidden">
     <div class="filters">
@@ -617,9 +573,8 @@ function tplDataFromDoc(d){ return {
   proses_sorumlusu:d.proses_sorumlusu||'', egitim_gerekli:(d.egitim_gerekli===true?'Evet':(d.egitim_gerekli===false?'Hayır':''))
 }; }
 function switchTab(t){
-  const tabs={list:'tabList',tpl:'tabTemplates',managed:'tabManaged'}, btns={list:'tabBtnList',tpl:'tabBtnTpl',managed:'tabBtnManaged'};
+  const tabs={list:'tabList',managed:'tabManaged'}, btns={list:'tabBtnList',managed:'tabBtnManaged'};
   Object.keys(tabs).forEach(k=>{ const el=document.getElementById(tabs[k]); if(el) el.classList.toggle('hidden',k!==t); const b=document.getElementById(btns[k]); if(b) b.classList.toggle('on',k===t); });
-  if(t==='tpl'){ tplRenderTags(); onTplSrc(); updateDriveStatus(); }
   if(t==='managed'){ loadManagedExtra().then(()=>loadManaged()); startManagedAuto(); } else { stopManagedAuto(); }
 }
 // Yönetilen Dokümanlar açıkken listeyi sessizce otomatik tazele → işçi üretince
@@ -832,14 +787,17 @@ async function tplGenerate(){
   try{ const r=await tplBuild(); dlBlob(r.blob,r.name); msg.textContent='✅ İndirildi: '+r.name; }
   catch(e){ const det=(e.properties&&e.properties.errors)?e.properties.errors.map(x=>x.properties&&x.properties.explanation).join('; '):''; msg.textContent='Hata: '+e.message+(det?' ('+det+')':''); toast('Şablon hatası: '+e.message,'err'); }
 }
-// kabuktan (doc modal) → Şablonlar sekmesine bu dokümanın alanlarıyla geç
-function tplFromDoc(d){
-  if(!d) return; closeModal(); switchTab('tpl');
-  const r=document.querySelector('input[name=tplSrc][value=doc]'); if(r){ r.checked=true; onTplSrc(); }
-  _tplData=tplDataFromDoc(d);
-  const s=document.getElementById('tplDocSearch'); if(s) s.value=(d.doc_no||'')+' — '+(d.doc_adi||'');
-  tplRenderFields();
-  toast('Şablonlar: '+(d.doc_no||'')+' alanları yüklendi — üst+alt antetli oluştur.','ok');
+// Detay modalından: bu dokümanın alanlarıyla antetli iskeleti DOĞRUDAN üret ve indir
+// (Şablonlar sekmesi kaldırıldı; içerik+antet için Yönetilen Dokümanlar kullanılır).
+async function tplFromDoc(d){
+  if(!d) return;
+  try{
+    const data=tplDataFromDoc(d);
+    const isX=/xls/i.test(d.dosya_uzanti||'');
+    const blob=isX?await buildAntetXlsx(data):await buildAntetDocx(data);
+    dlBlob(blob,(d.doc_no||'dokuman')+'_antet.'+(isX?'xlsx':'docx'));
+    toast('⬇ Antetli '+(isX?'Excel':'Word')+' indirildi (boş antet iskeleti). İçerikli üretim: Yönetilen Dokümanlar → ⚡','ok');
+  }catch(e){ toast('Hata: '+e.message,'err'); }
 }
 
 // ====================== YÖNETİLEN DOKÜMANLAR (M-Files tarzı) ======================
